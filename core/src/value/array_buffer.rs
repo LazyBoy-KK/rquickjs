@@ -16,35 +16,20 @@ pub struct ArrayBuffer<'js>(pub(crate) Object<'js>);
 impl<'js> ArrayBuffer<'js> {
     /// Create array buffer from vector data
     pub fn new<T: Copy>(ctx: Ctx<'js>, src: impl Into<Vec<T>>) -> Result<Self> {
-        let mut src = ManuallyDrop::new(src.into());
-        let ptr = src.as_mut_ptr();
+        let src = ManuallyDrop::new(src.into());
+        let ptr = src.as_ptr() as *const u8;
         let capacity = src.capacity();
         let size = src.len() * size_of::<T>();
-
-        extern "C" fn drop_raw<T>(_rt: *mut qjs::JSRuntime, opaque: *mut c_void, ptr: *mut c_void) {
-            let ptr = ptr as *mut T;
-            let capacity = opaque as usize;
-            // reconstruct vector in order to free data
-            // the length of actual data does not matter for copyable types
-            unsafe { Vec::from_raw_parts(ptr, capacity, capacity) };
+        unsafe {
+            let slice = std::slice::from_raw_parts(ptr, size);
+            let len = slice.len();
+            let ptr = slice.as_ptr();
+            Self::new_raw(ctx, ptr, len, capacity, |ptr, len, capacity| {
+                let ptr = ptr as *mut T;
+                let length = len / size_of::<T>();
+                Vec::from_raw_parts(ptr, length, capacity);
+            })
         }
-
-        Ok(Self(Object(unsafe {
-            let val = qjs::JS_NewArrayBuffer(
-                ctx.ctx,
-                ptr as _,
-                size as _,
-                Some(drop_raw::<T>),
-                capacity as _,
-                0,
-            );
-            handle_exception(ctx, val).map_err(|error| {
-                // don't forget to free data when error occurred
-                Vec::from_raw_parts(ptr, capacity, capacity);
-                error
-            })?;
-            Value::from_js_value(ctx, val)
-        })))
     }
 
     /// Create array buffer from slice
@@ -56,6 +41,60 @@ impl<'js> ArrayBuffer<'js> {
         Ok(Self(Object(unsafe {
             let val = qjs::JS_NewArrayBufferCopy(ctx.ctx, ptr as _, size as _);
             handle_exception(ctx, val)?;
+            Value::from_js_value(ctx, val)
+        })))
+    }
+
+    /// Create array buffer from slice
+    pub unsafe fn new_raw<T, F>(
+        ctx: Ctx<'js>,
+        ptr: *const u8,
+        len: usize,
+        opaque: T,
+        callback: F,
+    ) -> Result<Self>
+    where
+        F: FnOnce(*const u8, usize, T),
+    {
+        struct Opaque<T, F> {
+            size: usize,
+            inner: T,
+            callback: F,
+        }
+
+        unsafe extern "C" fn drop_raw<T, F>(
+            _rt: *mut qjs::JSRuntime,
+            opaque: *mut c_void,
+            ptr: *mut c_void,
+        ) where
+            F: FnOnce(*const u8, usize, T),
+        {
+            let opaque = Box::from_raw(opaque as *mut Opaque<T, F>);
+            let callback = opaque.callback;
+            callback(ptr as *const u8, opaque.size, opaque.inner);
+        }
+
+        let opaque_ptr = Box::leak(Box::new(Opaque {
+            size: len,
+            inner: opaque,
+            callback,
+        })) as *mut Opaque<T, F>;
+
+        Ok(Self(Object(unsafe {
+            let val = qjs::JS_NewArrayBuffer(
+                ctx.ctx,
+                ptr as _,
+                len as _,
+                Some(drop_raw::<T, F>),
+                opaque_ptr as _,
+                0,
+            );
+            handle_exception(ctx, val).map_err(|error| {
+                let opaque = Box::from_raw(opaque_ptr);
+                let callback = opaque.callback;
+                callback(ptr, len, opaque.inner);
+                error
+            })?;
             Value::from_js_value(ctx, val)
         })))
     }
