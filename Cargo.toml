@@ -48,15 +48,6 @@ package = "either"
 version = "1"
 optional = true
 
-[workspace]
-members = [
-    "sys",
-    "core",
-    "macro",
-    "examples/native-module",
-    "examples/module-loader",
-]
-
 [features]
 default = ["exports", "classes", "properties"]
 
