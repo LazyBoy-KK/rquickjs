@@ -175,6 +175,13 @@ impl<'js> Ctx<'js> {
         })
     }
 
+    #[cfg(feature = "quickjs-libc")]
+    pub(crate) unsafe fn get_opaque(self) -> &'js mut Opaque {
+        let rt = qjs::JS_GetRuntime(self.ctx);
+        &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _)
+    }
+
+    #[cfg(not(feature = "quickjs-libc"))]
     pub(crate) unsafe fn get_opaque(self) -> &'js mut Opaque {
         let rt = qjs::JS_GetRuntime(self.ctx);
         &mut *(qjs::JS_GetRuntimeOpaque(rt) as *mut _)

@@ -65,6 +65,33 @@ impl Opaque {
             spawner: Default::default(),
         }
     }
+
+    /// init runtime and opaque for module
+    #[cfg(feature = "quickjs-libc")]
+    pub(crate) unsafe fn init_raw(ctx: *mut qjs::JSContext) {
+        let rt = unsafe { qjs::JS_GetRuntime(ctx) };
+        let runtime = Runtime {
+            inner: Ref::new(Mut::new(Inner {
+                rt,
+                info: None,
+                #[cfg(feature = "allocator")]
+                allocator: None,
+                #[cfg(feature = "loader")]
+                loader: None,
+            })),
+        };
+        let opaque = Opaque::new(&runtime);
+        let opaque = Box::leak(Box::new((opaque, runtime)));
+        qjs::JS_SetRustRuntimeOpaque(rt, opaque as *mut (_, _) as *mut _);
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+#[no_mangle]
+unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
+    let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
+    let opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
+    drop(opaque);
 }
 
 pub(crate) struct Inner {
@@ -83,6 +110,7 @@ pub(crate) struct Inner {
     loader: Option<LoaderHolder>,
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl Drop for Inner {
     fn drop(&mut self) {
         unsafe {
@@ -103,10 +131,23 @@ impl Inner {
     }
 
     #[cfg(feature = "futures")]
+    #[cfg(feature = "quickjs-libc")]
+    pub(crate) unsafe fn get_opaque(&self) -> &Opaque {
+        &*(qjs::JS_GetRustRuntimeOpaque(self.rt) as *const _)
+    }
+
+    #[cfg(feature = "futures")]
+    #[cfg(not(feature = "quickjs-libc"))]
     pub(crate) unsafe fn get_opaque(&self) -> &Opaque {
         &*(qjs::JS_GetRuntimeOpaque(self.rt) as *const _)
     }
 
+    #[cfg(feature = "quickjs-libc")]
+    pub(crate) unsafe fn get_opaque_mut(&mut self) -> &mut Opaque {
+        &mut *(qjs::JS_GetRustRuntimeOpaque(self.rt) as *mut _)
+    }
+
+    #[cfg(not(feature = "quickjs-libc"))]
     pub(crate) unsafe fn get_opaque_mut(&mut self) -> &mut Opaque {
         &mut *(qjs::JS_GetRuntimeOpaque(self.rt) as *mut _)
     }
@@ -148,6 +189,7 @@ impl Runtime {
     ///
     /// # Features
     /// *If the `"rust-alloc"` feature is enabled the Rust's global allocator will be used in favor of libc's one.*
+    #[cfg(not(feature = "quickjs-libc"))]
     pub fn new() -> Result<Self> {
         #[cfg(not(feature = "rust-alloc"))]
         {
@@ -166,6 +208,7 @@ impl Runtime {
     ///
     /// Will generally only fail if not enough memory was available.
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "allocator")))]
+    #[cfg(not(feature = "quickjs-libc"))]
     pub fn new_with_alloc<A>(allocator: A) -> Result<Self>
     where
         A: Allocator + 'static,
@@ -181,6 +224,7 @@ impl Runtime {
     }
 
     #[inline]
+    #[cfg(not(feature = "quickjs-libc"))]
     fn new_raw(
         rt: *mut qjs::JSRuntime,
         #[cfg(feature = "allocator")] allocator: Option<AllocatorHolder>,
@@ -214,6 +258,7 @@ impl Runtime {
     /// Set a closure which is regularly called by the engine when it is executing code.
     /// If the provided closure returns `true` the interpreter will raise and uncatchable
     /// exception and return control flow to the caller.
+    #[cfg(not(feature = "quickjs-libc"))]
     pub fn set_interrupt_handler(&self, handler: Option<Box<dyn FnMut() -> bool + 'static>>) {
         unsafe extern "C" fn interrupt_handler_trampoline(
             _rt: *mut qjs::JSRuntime,

@@ -153,6 +153,8 @@ impl Context {
     }
 
     pub(crate) unsafe fn init_raw(ctx: *mut qjs::JSContext) {
+        #[cfg(feature = "quickjs-libc")]
+        crate::runtime::Opaque::init_raw(ctx);
         crate::Function::init_raw(ctx);
     }
 }

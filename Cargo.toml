@@ -108,7 +108,7 @@ array-buffer = ["rquickjs-core/array-buffer"]
 macro = ["rquickjs-macro"]
 
 # Enable quickjs-libc compatable code path
-quickjs-libc = ["rquickjs-core/quickjs-libc", "rquickjs-macro/quickjs-libc"]
+quickjs-libc = ["rquickjs-core/quickjs-libc"]
 
 # Enable interop between Rust futures and JS Promises
 futures = ["rquickjs-core/futures"]

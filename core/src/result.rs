@@ -67,17 +67,11 @@ pub enum Error {
         message: Option<StdString>,
     },
     #[cfg(feature = "quickjs-libc")]
-    CompileError {
-        message: StdString,
-    },
+    CompileError { message: StdString },
     #[cfg(feature = "quickjs-libc")]
-    LinkError {
-        message: StdString,
-    },
+    LinkError { message: StdString },
     #[cfg(feature = "quickjs-libc")]
-    RuntimeError {
-        message: StdString,
-    },
+    RuntimeError { message: StdString },
     /// Error when restoring a Persistent in a runtime other than the original runtime.
     UnrelatedRuntime,
     /// An error from quickjs from which the specifics are unknown.

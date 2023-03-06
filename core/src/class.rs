@@ -1,8 +1,8 @@
 mod refs;
 
 use crate::{
-    handle_exception, qjs, ClassId, Ctx, Error, FromJs, Function, IntoJs, Object, Outlive, Result,
-    Type, Value, Atom,
+    handle_exception, qjs, Atom, ClassId, Ctx, Error, FromJs, Function, IntoJs, Object, Outlive,
+    Result, Type, Value,
 };
 use std::{ffi::CString, marker::PhantomData, mem, ops::Deref, ptr};
 
