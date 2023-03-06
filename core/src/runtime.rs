@@ -1,5 +1,10 @@
-use crate::{get_exception, qjs, Ctx, Error, Mut, Ref, Result, Weak};
-use std::{any::Any, ffi::CString, mem, panic};
+use crate::{get_exception, qjs, Ctx, Mut, Ref, Result, Weak};
+use std::{any::Any, ffi::CString, mem};
+
+#[cfg(not(feature = "quickjs-libc"))]
+use crate::Error;
+#[cfg(not(feature = "quickjs-libc"))]
+use std::panic;
 
 #[cfg(feature = "futures")]
 mod async_runtime;

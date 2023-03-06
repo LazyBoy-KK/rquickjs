@@ -238,7 +238,7 @@ impl Error {
     }
 
     /// Throw an exception
-    pub(crate) fn throw(&self, ctx: Ctx) -> qjs::JSValue {
+    pub fn throw(&self, ctx: Ctx) -> qjs::JSValue {
         use Error::*;
         match self {
             Allocation => unsafe { qjs::JS_ThrowOutOfMemory(ctx.ctx) },

@@ -115,7 +115,7 @@ impl<'js> PartialEq for Value<'js> {
 impl<'js> Value<'js> {
     // unsafe becuase the value must belong the context and the lifetime must be constrained by its lifetime
     #[inline]
-    pub(crate) unsafe fn from_js_value(ctx: Ctx<'js>, value: qjs::JSValue) -> Self {
+    pub unsafe fn from_js_value(ctx: Ctx<'js>, value: qjs::JSValue) -> Self {
         Self { ctx, value }
     }
 
