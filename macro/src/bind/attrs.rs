@@ -191,6 +191,8 @@ pub struct AttrData {
     /// Data name for export
     #[darling(rename = "rename")]
     pub name: Option<String>,
+    /// Class name for export
+    pub class_name: Option<String>,
     /// Data has internal refs
     pub has_refs: bool,
     /// Data implements [`Clone`] trait
@@ -206,6 +208,9 @@ impl Extend<Self> for AttrData {
         for over in iter {
             if over.name.is_some() {
                 self.name = over.name;
+            }
+            if over.class_name.is_some() {
+                self.class_name = over.class_name;
             }
             if over.has_refs {
                 self.has_refs = true;

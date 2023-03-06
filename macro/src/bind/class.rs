@@ -12,6 +12,8 @@ pub struct BindClass {
     pub proto_items: BindItems,
     /// Constructor
     pub ctor: Option<BindFn>,
+    /// Class name
+    pub class_name: String,
     /// Has internal refs
     pub has_refs: bool,
     /// Implements clone
@@ -61,16 +63,16 @@ impl BindClass {
 
         let mut extras = quote! {};
 
-        if !proto_list.is_empty() {
-            extras.extend(quote! {
-                const HAS_PROTO: bool = true;
+        extras.extend(quote! {
+            const HAS_PROTO: bool = true;
 
-                fn init_proto<'js>(_ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
-                    #(#proto_list)*
-                    Ok(())
-                }
-            });
-        }
+            fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
+                let to_string_tag = unsafe { #lib_crate::Atom::from_atom_val(ctx, #lib_crate::qjs::JS_ATOM_Symbol_toStringTag) };
+                #exports_var.prop(to_string_tag, Self::CLASS_NAME)?;
+                #(#proto_list)*
+                Ok(())
+            }
+        });
 
         if !static_list.is_empty() {
             extras.extend(quote! {
@@ -129,9 +131,10 @@ impl BindClass {
             });
         }
 
+        let class_name = &self.class_name;
         quote! {
             impl #lib_crate::ClassDef for #src {
-                const CLASS_NAME: &'static str = #name;
+                const CLASS_NAME: &'static str = #class_name;
 
                 unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
                     static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
@@ -151,10 +154,13 @@ impl BindClass {
 }
 
 impl Binder {
-    fn update_class(&mut self, ident: &Ident, name: &str, has_refs: bool, cloneable: bool) {
+    fn update_class(&mut self, ident: &Ident, name: &str, class_name: Option<String>, has_refs: bool, cloneable: bool) {
         let src = self.top_src().clone();
         let class = self.top_class().unwrap();
         class.set_src(ident, name, src);
+        if let Some(class_name) = class_name {
+            class.class_name = class_name;
+        }
         if has_refs {
             class.has_refs = true;
         }
@@ -175,6 +181,7 @@ impl Binder {
     ) {
         let AttrData {
             name,
+            class_name,
             has_refs,
             cloneable,
             skip,
@@ -190,10 +197,11 @@ impl Binder {
         self.identify(ident);
 
         let name = name.unwrap_or_else(|| ident.to_string());
+        let class_name = class_name.unwrap_or_else(|| name.clone());
 
         self.with_dir(ident, |this| {
             this.with_item::<BindClass, _>(ident, &name, |this| {
-                this.update_class(ident, &name, has_refs, cloneable);
+                this.update_class(ident, &name, Some(class_name), has_refs, cloneable);
 
                 use Fields::*;
                 match fields {
@@ -225,6 +233,7 @@ impl Binder {
     ) {
         let AttrData {
             name,
+            class_name,
             has_refs,
             cloneable,
             skip,
@@ -240,10 +249,11 @@ impl Binder {
         self.identify(ident);
 
         let name = name.unwrap_or_else(|| ident.to_string());
+        let class_name = class_name.unwrap_or_else(|| name.clone());
 
         self.with_dir(ident, |this| {
             this.with_item::<BindClass, _>(ident, &name, |this| {
-                this.update_class(ident, &name, has_refs, cloneable);
+                this.update_class(ident, &name, Some(class_name), has_refs, cloneable);
 
                 // TODO support for variant fields
             });
@@ -375,7 +385,7 @@ impl Binder {
 
         self.with_dir(ident, |this| {
             this.with_item::<BindClass, _>(ident, &name, |this| {
-                this.update_class(ident, &name, has_refs, cloneable);
+                this.update_class(ident, &name, None, has_refs, cloneable);
 
                 this.bind_impl_items(items);
             });

@@ -2,7 +2,7 @@ mod refs;
 
 use crate::{
     handle_exception, qjs, ClassId, Ctx, Error, FromJs, Function, IntoJs, Object, Outlive, Result,
-    Type, Value,
+    Type, Value, Atom,
 };
 use std::{ffi::CString, marker::PhantomData, mem, ops::Deref, ptr};
 
@@ -82,7 +82,9 @@ pub trait ClassDef {
     const HAS_PROTO: bool = false;
 
     /// The prototype initializer method
-    fn init_proto<'js>(_ctx: Ctx<'js>, _proto: &Object<'js>) -> Result<()> {
+    fn init_proto<'js>(ctx: Ctx<'js>, proto: &Object<'js>) -> Result<()> {
+        let to_string_tag = unsafe { Atom::from_atom_val(ctx, qjs::JS_ATOM_Symbol_toStringTag) };
+        proto.prop(to_string_tag, Self::CLASS_NAME)?;
         Ok(())
     }
 

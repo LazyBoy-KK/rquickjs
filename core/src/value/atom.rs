@@ -116,7 +116,7 @@ impl<'js> Atom<'js> {
         self.to_js_string().map(|String(value)| value)
     }
 
-    pub(crate) unsafe fn from_atom_val(ctx: Ctx<'js>, val: qjs::JSAtom) -> Self {
+    pub unsafe fn from_atom_val(ctx: Ctx<'js>, val: qjs::JSAtom) -> Self {
         Atom { atom: val, ctx }
     }
 }
