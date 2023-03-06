@@ -1,5 +1,5 @@
 use super::Input;
-use crate::{handle_panic, qjs, ClassId, Ctx, Result, Value};
+use crate::{handle_panic, qjs, ClassId, Ctx, Object, Result, Value};
 use std::{ops::Deref, panic::AssertUnwindSafe, ptr};
 
 static mut FUNC_CLASS_ID: ClassId = ClassId::new();
@@ -49,9 +49,10 @@ impl<'js> JsFunction<'js> {
         Ok(res.into_js_value())
     }
 
-    pub unsafe fn register(rt: *mut qjs::JSRuntime) {
+    pub unsafe fn register(ctx: *mut qjs::JSContext) {
         FUNC_CLASS_ID.init();
         let class_id = Self::class_id();
+        let rt = unsafe { qjs::JS_GetRuntime(ctx) };
         if 0 == qjs::JS_IsRegisteredClass(rt, class_id) {
             let class_def = qjs::JSClassDef {
                 class_name: b"RustFunction\0".as_ptr() as *const _,
@@ -61,6 +62,11 @@ impl<'js> JsFunction<'js> {
                 exotic: ptr::null_mut(),
             };
             assert!(qjs::JS_NewClass(rt, class_id, &class_def) == 0);
+            if let Ok(obj) = Ctx::from_ptr(ctx).eval::<Object, _>("Function") {
+                if let Ok(func_proto) = obj.get_prototype() {
+                    unsafe { qjs::JS_SetClassProto(ctx, class_id, func_proto.0.into_js_value()) }
+                }
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::{get_exception, qjs, Ctx, Error, Function, Mut, Ref, Result, Weak};
+use crate::{get_exception, qjs, Ctx, Error, Mut, Ref, Result, Weak};
 use std::{any::Any, ffi::CString, mem, panic};
 
 #[cfg(feature = "futures")]
@@ -180,10 +180,6 @@ impl Runtime {
         )
     }
 
-    pub(crate) unsafe fn init_raw(rt: *mut qjs::JSRuntime) {
-        Function::init_raw(rt);
-    }
-
     #[inline]
     fn new_raw(
         rt: *mut qjs::JSRuntime,
@@ -192,8 +188,6 @@ impl Runtime {
         if rt.is_null() {
             return Err(Error::Allocation);
         }
-
-        unsafe { Self::init_raw(rt) };
 
         let runtime = Runtime {
             inner: Ref::new(Mut::new(Inner {

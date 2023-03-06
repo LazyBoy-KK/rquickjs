@@ -256,8 +256,8 @@ impl<'js> Function<'js> {
         }
     }
 
-    pub(crate) unsafe fn init_raw(rt: *mut qjs::JSRuntime) {
-        JsFunction::register(rt);
+    pub(crate) unsafe fn init_raw(ctx: *mut qjs::JSContext) {
+        JsFunction::register(ctx);
     }
 }
 

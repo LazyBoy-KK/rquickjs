@@ -61,6 +61,7 @@ impl Context {
             return Err(Error::Allocation);
         }
         unsafe { I::add_intrinsic(ctx) };
+        unsafe { Self::init_raw(ctx) };
         let res = Context {
             ctx,
             rt: runtime.clone(),
@@ -79,6 +80,7 @@ impl Context {
         if ctx.is_null() {
             return Err(Error::Allocation);
         }
+        unsafe { Self::init_raw(ctx) };
         let res = Context {
             ctx,
             rt: runtime.clone(),
@@ -151,7 +153,7 @@ impl Context {
     }
 
     pub(crate) unsafe fn init_raw(ctx: *mut qjs::JSContext) {
-        Runtime::init_raw(qjs::JS_GetRuntime(ctx));
+        crate::Function::init_raw(ctx);
     }
 }
 
