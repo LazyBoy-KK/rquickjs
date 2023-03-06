@@ -66,6 +66,18 @@ pub enum Error {
         name: StdString,
         message: Option<StdString>,
     },
+    #[cfg(feature = "quickjs-libc")]
+    CompileError {
+        message: StdString,
+    },
+    #[cfg(feature = "quickjs-libc")]
+    LinkError {
+        message: StdString,
+    },
+    #[cfg(feature = "quickjs-libc")]
+    RuntimeError {
+        message: StdString,
+    },
     /// Error when restoring a Persistent in a runtime other than the original runtime.
     UnrelatedRuntime,
     /// An error from quickjs from which the specifics are unknown.
@@ -206,6 +218,18 @@ impl Error {
     /// Return whether the error is an function args mismatch error
     pub fn is_num_args(&self) -> bool {
         matches!(self, Self::NumArgs { .. })
+    }
+    #[cfg(feature = "quickjs-libc")]
+    pub fn new_compile_error(message: StdString) -> Self {
+        Self::CompileError { message }
+    }
+    #[cfg(feature = "quickjs-libc")]
+    pub fn new_link_error(message: StdString) -> Self {
+        Self::LinkError { message }
+    }
+    #[cfg(feature = "quickjs-libc")]
+    pub fn new_runtime_error(message: StdString) -> Self {
+        Self::RuntimeError { message }
     }
 
     /// Optimized conversion to CString
@@ -358,6 +382,30 @@ impl Display for Error {
                 "IO Error: ".fmt(f)?;
                 error.fmt(f)?;
             }
+            #[cfg(feature = "quickjs-libc")]
+            CompileError { message } => {
+                "CompileError".fmt(f)?;
+                if !message.is_empty() {
+                    ": ".fmt(f)?;
+                    message.fmt(f)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            LinkError { message } => {
+                "LinkError".fmt(f)?;
+                if !message.is_empty() {
+                    ": ".fmt(f)?;
+                    message.fmt(f)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            RuntimeError { message } => {
+                "RuntimeError".fmt(f)?;
+                if !message.is_empty() {
+                    ": ".fmt(f)?;
+                    message.fmt(f)?;
+                }
+            }
             UnrelatedRuntime => "Restoring Persistent in an unrelated runtime".fmt(f)?,
         }
         Ok(())
@@ -428,6 +476,27 @@ impl<'js> IntoJs<'js> for &Error {
                 }
                 if !stack.is_empty() {
                     value.set("stack", stack)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            CompileError { message } => {
+                value.set("name", "CompileError")?;
+                if !message.is_empty() {
+                    value.set("message", message)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            LinkError { message } => {
+                value.set("name", "LinkError")?;
+                if !message.is_empty() {
+                    value.set("message", message)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            RuntimeError { message } => {
+                value.set("name", "RuntimeError")?;
+                if !message.is_empty() {
+                    value.set("message", message)?;
                 }
             }
             error => {
