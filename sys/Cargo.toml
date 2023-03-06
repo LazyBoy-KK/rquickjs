@@ -25,6 +25,8 @@ optional = true
 [features]
 exports = []
 bindgen = ["bindgen-rs"]
+# Enable quickjs-libc compatable code path
+quickjs-libc = []
 
 # Debug logging
 logging = ["pretty_env_logger"]

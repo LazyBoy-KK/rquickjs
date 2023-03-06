@@ -56,3 +56,10 @@ features = ["attributes"]
 
 [features]
 phf = ["phf_shared", "phf_generator"]
+
+# Use bindgen to generate bindings at compile-type
+# otherwise bundled bindings will be used
+bindgen = ["rquickjs-core/bindgen", "rquickjs/bindgen"]
+
+# Enable quickjs-libc compatable code path
+quickjs-libc = ["rquickjs-core/quickjs-libc"]

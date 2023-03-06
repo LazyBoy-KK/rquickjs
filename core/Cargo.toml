@@ -121,6 +121,9 @@ properties = []
 # Enable ArrayBuffer and TypedArray support
 array-buffer = []
 
+# Enable quickjs-libc compatable code path
+quickjs-libc = []
+
 # Enable interop between Rust futures and JS Promises
 futures = ["pin-project-lite", "futures-lite", "async-task", "flume"]
 
