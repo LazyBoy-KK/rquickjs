@@ -19,7 +19,7 @@ impl<'js> Drop for CallInput<'js> {
 
 impl<'js> CallInput<'js> {
     #[inline]
-    pub(crate) fn new(ctx: Ctx<'js>, nargs: usize) -> Self {
+    pub fn new(ctx: Ctx<'js>, nargs: usize) -> Self {
         //let this = ctx.globals().into_value().into_js_value();
         let this = qjs::JS_UNDEFINED;
         let args = Vec::with_capacity(nargs);

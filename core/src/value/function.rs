@@ -9,7 +9,7 @@ mod as_func;
 mod ffi;
 mod types;
 
-use args::{FromInput, Input};
+pub use args::{FromInput, Input, InputAccessor};
 pub use as_args::{AsArguments, CallInput, IntoInput};
 pub use as_func::AsFunction;
 use ffi::JsFunction;
@@ -96,7 +96,7 @@ impl<'js> Function<'js> {
     }
 
     /// Immadiate call of function
-    pub(crate) fn call_raw(&self, input: &CallInput) -> Result<Value<'js>> {
+    pub fn call_raw(&self, input: &CallInput) -> Result<Value<'js>> {
         let ctx = self.0.ctx;
         Ok(unsafe {
             let val = qjs::JS_Call(
