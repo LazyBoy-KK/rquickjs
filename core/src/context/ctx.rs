@@ -159,18 +159,18 @@ impl<'js> Ctx<'js> {
 
     /// Creates promise and resolving functions.
     pub fn promise(self) -> Result<(Object<'js>, Function<'js>, Function<'js>)> {
-        let mut funcs = mem::MaybeUninit::<(qjs::JSValue, qjs::JSValue)>::uninit();
+        let mut funcs = mem::MaybeUninit::<[qjs::JSValue; 2]>::uninit();
 
         Ok(unsafe {
             let promise = handle_exception(
                 self,
                 qjs::JS_NewPromiseCapability(self.ctx, funcs.as_mut_ptr() as _),
             )?;
-            let (then, catch) = funcs.assume_init();
+            let [resolve, reject] = funcs.assume_init();
             (
                 Object::from_js_value(self, promise),
-                Function::from_js_value(self, then),
-                Function::from_js_value(self, catch),
+                Function::from_js_value(self, resolve),
+                Function::from_js_value(self, reject),
             )
         })
     }

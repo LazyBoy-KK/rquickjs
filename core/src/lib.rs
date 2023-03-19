@@ -37,7 +37,7 @@ pub(crate) use safe_ref::*;
 mod runtime;
 #[cfg(feature = "async-std")]
 pub use runtime::AsyncStd;
-#[cfg(all(feature = "smol", feature = "parallel"))]
+#[cfg(any(feature = "smol", feature = "parallel"))]
 pub use runtime::Smol;
 #[cfg(feature = "tokio")]
 pub use runtime::Tokio;

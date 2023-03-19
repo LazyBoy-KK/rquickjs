@@ -2,7 +2,6 @@ use crate::{
     Context, Ctx, Error, FromJs, Func, Function, IntoJs, Mut, Object, ParallelSend, Persistent,
     Ref, Result, This, Value,
 };
-use pin_project_lite::pin_project;
 use std::{
     future::Future,
     pin::Pin,
@@ -96,74 +95,27 @@ where
     for<'js_> T::Output: IntoJs<'js_> + 'static,
 {
     fn into_js(self, ctx: Ctx<'js>) -> Result<Value<'js>> {
-        let (future, promise) = PromiseTask::from_future(ctx, self.0)?;
+        let future = self.0;
+        let (promise, resolve, reject) = ctx.promise()?;
 
-        ctx.spawn(future);
-
-        Ok(promise.into_value())
-    }
-}
-
-pin_project! {
-    struct PromiseTask<T> {
-        #[pin]
-        future: T,
-        then: Persistent<Function<'static>>,
-        catch: Persistent<Function<'static>>,
-        // context should be last for dropping runtime after that `then` and `catch` functions is dropped
-        context: Context,
-    }
-}
-
-impl<T> PromiseTask<T> {
-    fn from_future<'js>(ctx: Ctx<'js>, future: T) -> Result<(Self, Object<'js>)> {
-        let (promise, then, catch) = ctx.promise()?;
-
-        let then = Persistent::save(ctx, then);
-        let catch = Persistent::save(ctx, catch);
-
+        let resolve = Persistent::save(ctx, resolve);
+        let reject = Persistent::save(ctx, reject);
         let context = Context::from_ctx(ctx)?;
-
-        Ok((
-            Self {
-                future,
-                then,
-                catch,
-                context,
-            },
-            promise,
-        ))
-    }
-}
-
-impl<T> Future for PromiseTask<T>
-where
-    T: Future + ParallelSend + 'static,
-    for<'js_> T::Output: IntoJs<'js_> + 'static,
-{
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut TaskContext) -> Poll<Self::Output> {
-        match { self.as_mut().project().future.poll(cx) } {
-            Poll::Ready(value) => {
-                self.context.with(|ctx| match value.into_js(ctx) {
-                    Ok(value) => resolve(ctx, self.then.clone().restore(ctx).unwrap(), value),
-                    Err(error) => resolve(
-                        ctx,
-                        self.catch.clone().restore(ctx).unwrap(),
+        ctx.spawn(async move {
+            let value = future.await;
+            context.with(|ctx| {
+                let (func, value) = match value.into_js(ctx) {
+                    Ok(value) => (resolve.clone().restore(ctx).unwrap(), value),
+                    Err(error) => (
+                        reject.clone().restore(ctx).unwrap(),
                         error.into_js(ctx).unwrap(),
                     ),
-                });
-                Poll::Ready(())
-            }
-            _ => Poll::Pending,
-        }
-    }
-}
+                };
+                func.call::<_, Value>((value,)).unwrap();
+            });
+        });
 
-fn resolve<'js>(_ctx: Ctx<'js>, func: Function<'js>, value: Value<'js>) {
-    if let Err(error) = func.call::<_, Value>((value,)) {
-        eprintln!("Error when promise resolution: {error}");
+        Ok(promise.into_value())
     }
 }
 

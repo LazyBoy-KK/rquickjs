@@ -50,9 +50,9 @@ async_rt_impl! {
     AsyncStd { async_std::task::JoinHandle<()>, async_std::task::spawn_local, async_std::task::spawn }
 
     /// The [`smol`] async runtime for spawning executors.
-    #[cfg(all(feature = "smol", feature = "parallel"))]
+    #[cfg(any(feature = "smol", feature = "parallel"))]
     #[cfg_attr(feature = "doc-cfg", doc(cfg(all(feature = "smol", feature = "parallel"))))]
-    Smol { smol::Task<()>, smol::spawn_local, smol::spawn }
+    Smol { smol::Task<()>, smol::spawn, smol::spawn }
 }
 
 #[cfg(all(feature = "smol", feature = "parallel"))]
@@ -70,6 +70,7 @@ impl<'a> ExecutorSpawner for &SmolExecutor<'a> {
 }
 
 impl Inner {
+    #[cfg(not(feature = "quickjs-libc"))]
     pub fn has_spawner(&self) -> bool {
         unsafe { self.get_opaque() }.spawner.is_some()
     }
@@ -119,11 +120,13 @@ impl Runtime {
         spawner.spawn_executor(self.run_executor())
     }
 
+    #[cfg(not(feature = "quickjs-libc"))]
     pub(crate) fn spawn_pending_jobs(&self) {
         let runtime = self.clone();
         self.spawn(async move { runtime.execute_pending_jobs().await });
     }
 
+    #[cfg(not(feature = "quickjs-libc"))]
     async fn execute_pending_jobs(&self) {
         loop {
             match self.execute_pending_job() {

@@ -1,8 +1,10 @@
-use crate::{get_exception, qjs, Ctx, Mut, Ref, Result, Weak};
+use crate::{qjs, Mut, Ref, Result, Weak};
 use std::{any::Any, ffi::CString, mem};
 
 #[cfg(not(feature = "quickjs-libc"))]
 use crate::Error;
+#[cfg(not(feature = "quickjs-libc"))]
+use crate::{get_exception, Ctx};
 #[cfg(not(feature = "quickjs-libc"))]
 use std::panic;
 
@@ -88,6 +90,7 @@ impl Opaque {
         let opaque = Opaque::new(&runtime);
         let opaque = Box::leak(Box::new((opaque, runtime)));
         qjs::JS_SetRustRuntimeOpaque(rt, opaque as *mut (_, _) as *mut _);
+        opaque.1.spawn_executor(crate::AsyncStd);
     }
 }
 
@@ -95,8 +98,20 @@ impl Opaque {
 #[no_mangle]
 unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
     let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
-    let opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
+    let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
+    let spawner = opaque.0.spawner.as_mut().unwrap();
+    let idle = spawner.idle();
+    async_std::task::block_on(idle);
     drop(opaque);
+}
+
+#[cfg(feature = "quickjs-libc")]
+#[no_mangle]
+unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) {
+    let opaque: &mut (Opaque, Runtime) = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
+    let spawner = opaque.0.spawner.as_mut().unwrap();
+    let idle = spawner.idle();
+    async_std::task::block_on(idle);
 }
 
 pub(crate) struct Inner {
@@ -157,10 +172,12 @@ impl Inner {
         &mut *(qjs::JS_GetRuntimeOpaque(self.rt) as *mut _)
     }
 
+    #[cfg(not(feature = "quickjs-libc"))]
     pub(crate) fn is_job_pending(&self) -> bool {
         0 != unsafe { qjs::JS_IsJobPending(self.rt) }
     }
 
+    #[cfg(not(feature = "quickjs-libc"))]
     pub(crate) fn execute_pending_job(&mut self) -> Result<bool> {
         let mut ctx_ptr = mem::MaybeUninit::<*mut qjs::JSContext>::uninit();
         self.update_stack_top();
@@ -373,6 +390,7 @@ impl Runtime {
     /// Test for pending jobs
     ///
     /// Returns true when at least one job is pending.
+    #[cfg(not(feature = "quickjs-libc"))]
     #[inline]
     pub fn is_job_pending(&self) -> bool {
         self.inner.lock().is_job_pending()
@@ -381,6 +399,7 @@ impl Runtime {
     /// Execute first pending job
     ///
     /// Returns true when job was executed or false when queue is empty or error when exception thrown under execution.
+    #[cfg(not(feature = "quickjs-libc"))]
     #[inline]
     pub fn execute_pending_job(&self) -> Result<bool> {
         self.inner.lock().execute_pending_job()

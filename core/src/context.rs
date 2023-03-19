@@ -125,7 +125,7 @@ impl Context {
     where
         F: FnOnce(Ctx) -> R,
     {
-        #[cfg(not(feature = "futures"))]
+        #[cfg(any(not(feature = "futures"), feature = "quickjs-libc"))]
         {
             let guard = self.rt.inner.lock();
             guard.update_stack_top();
@@ -135,7 +135,7 @@ impl Context {
             result
         }
 
-        #[cfg(feature = "futures")]
+        #[cfg(all(feature = "futures", not(feature = "quickjs-libc")))]
         {
             let (spawn_pending_jobs, result) = {
                 let guard = self.rt.inner.lock();
@@ -144,7 +144,6 @@ impl Context {
                 let result = f(ctx);
                 (guard.has_spawner() && guard.is_job_pending(), result)
             };
-            #[cfg(feature = "futures")]
             if spawn_pending_jobs {
                 self.rt.spawn_pending_jobs();
             }
