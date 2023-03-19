@@ -16,7 +16,11 @@ impl<'js> Input<'js> {
         argv: *mut qjs::JSValue,
     ) -> Self {
         let ctx = Ctx::from_ptr(ctx);
-        let args = unsafe { slice::from_raw_parts(argv, argc as _) };
+        let args = if argv.is_null() {
+            &[]
+        } else {
+            unsafe { slice::from_raw_parts(argv, argc as _) }
+        };
         Self { ctx, this, args }
     }
 
