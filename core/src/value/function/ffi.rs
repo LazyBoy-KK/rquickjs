@@ -78,7 +78,14 @@ impl<'js> JsFunction<'js> {
         argv: *mut qjs::JSValue,
         _flags: qjs::c_int,
     ) -> qjs::JSValue {
+        let is_ctor = qjs::JS_IsConstructor(ctx, func) as u32;
         let ctx = Ctx::from_ptr(ctx);
+        let call_ctor = _flags as u32 & qjs::JS_CALL_FLAG_CONSTRUCTOR;
+        if (is_ctor ^ call_ctor) == 1 {
+            let error_str = String::from("must be called with new");
+            return qjs::JS_ThrowTypeError(ctx.ctx, error_str.as_ptr() as _);
+        }
+        
         let opaque = &*(qjs::JS_GetOpaque2(ctx.ctx, func, Self::class_id()) as *mut Self);
 
         handle_panic(
