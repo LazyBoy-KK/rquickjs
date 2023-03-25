@@ -354,11 +354,11 @@ where
         inst.mark_refs(&marker);
     }
 
-    unsafe extern "C" fn finalizer(rt: *mut qjs::JSRuntime, val: qjs::JSValue) {
+    unsafe extern "C" fn finalizer(_rt: *mut qjs::JSRuntime, val: qjs::JSValue) {
         let ptr = qjs::JS_GetOpaque(val, Self::id()) as *mut C;
         debug_assert!(!ptr.is_null());
         let inst = Box::from_raw(ptr);
-        qjs::JS_FreeValueRT(rt, val);
+        // qjs::JS_FreeValueRT(rt, val);
         mem::drop(inst);
     }
 }
