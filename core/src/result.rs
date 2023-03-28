@@ -72,6 +72,8 @@ pub enum Error {
     LinkError { message: StdString },
     #[cfg(feature = "quickjs-libc")]
     RuntimeError { message: StdString },
+    #[cfg(feature = "quickjs-libc")]
+    TypeError { message: StdString },
     /// Error when restoring a Persistent in a runtime other than the original runtime.
     UnrelatedRuntime,
     /// An error from quickjs from which the specifics are unknown.
@@ -225,6 +227,10 @@ impl Error {
     pub fn new_runtime_error(message: StdString) -> Self {
         Self::RuntimeError { message }
     }
+    #[cfg(feature = "quickjs-libc")]
+    pub fn new_type_error(message: StdString) -> Self {
+        Self::TypeError { message }
+    }
 
     /// Optimized conversion to CString
     pub(crate) fn to_cstring(&self) -> CString {
@@ -243,6 +249,11 @@ impl Error {
         match self {
             Allocation => unsafe { qjs::JS_ThrowOutOfMemory(ctx.ctx) },
             InvalidString(_) | Utf8(_) | FromJs { .. } | IntoJs { .. } | NumArgs { .. } => {
+                let message = self.to_cstring();
+                unsafe { qjs::JS_ThrowTypeError(ctx.ctx, message.as_ptr()) }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            TypeError { .. } => {
                 let message = self.to_cstring();
                 unsafe { qjs::JS_ThrowTypeError(ctx.ctx, message.as_ptr()) }
             }
@@ -400,6 +411,14 @@ impl Display for Error {
                     message.fmt(f)?;
                 }
             }
+            #[cfg(feature = "quickjs-libc")]
+            TypeError { message } => {
+                "TypeError".fmt(f)?;
+                if !message.is_empty() {
+                    ": ".fmt(f)?;
+                    message.fmt(f)?;
+                }
+            }
             UnrelatedRuntime => "Restoring Persistent in an unrelated runtime".fmt(f)?,
         }
         Ok(())
@@ -489,6 +508,41 @@ impl<'js> IntoJs<'js> for &Error {
             #[cfg(feature = "quickjs-libc")]
             RuntimeError { message } => {
                 value.set("name", "RuntimeError")?;
+                if !message.is_empty() {
+                    value.set("message", message)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            InvalidString(_) | Utf8(_) | FromJs { .. } | IntoJs { .. } | NumArgs { .. } | TypeError { .. } => {
+                let message = format!("{self}").to_string();
+                let type_error = ctx.eval::<Object, _>("new TypeError()")?;
+                value.set_prototype(&type_error.get_prototype()?)?;
+                if !message.is_empty() {
+                    value.set("message", message)?;
+                }
+            }
+            #[cfg(feature = "loader")]
+            #[cfg(feature = "quickjs-libc")]
+            Resolving { .. } | Loading { .. } => {
+                let message = format!("{self}").to_string();
+                let error = ctx.eval::<Object, _>("new ReferenceError()")?;
+                value.set_prototype(&error.get_prototype()?)?;
+                if !message.is_empty() {
+                    value.set("message", message)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            Allocation => {
+                let message = "out of memory".to_string();
+                let error = ctx.eval::<Object, _>("new InteralError()")?;
+                value.set_prototype(&error.get_prototype()?)?;
+                value.set("message", message)?;
+            }
+            #[cfg(feature = "quickjs-libc")]
+            Unknown => {
+                let message = format!("{self}").to_string();
+                let error = ctx.eval::<Object, _>("new InternalError()")?;
+                value.set_prototype(&error.get_prototype()?)?;
                 if !message.is_empty() {
                     value.set("message", message)?;
                 }
