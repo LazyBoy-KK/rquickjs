@@ -7,6 +7,7 @@ use syn::{Attribute, FnArg, ImplItemMethod, ItemFn, Pat, Signature, Visibility};
 pub struct BindFn {
     pub fns: Vec<BindFn1>,
     pub class: Option<Source>,
+    pub error_ctor: bool,
 }
 
 impl BindFn {
@@ -53,11 +54,19 @@ impl BindFn {
             _ => quote! { (#(#bindings),*) },
         };
         let bindings = if let Some(class) = &self.class {
-            quote! { #lib_crate::Class::<#class>::constructor(#bindings) }
+            if self.error_ctor {
+                quote! { #lib_crate::ErrorClass::<#class>::constructor(#bindings) }
+            } else {
+                quote! { #lib_crate::Class::<#class>::constructor(#bindings) }
+            }
         } else {
             bindings
         };
-        quote! { #exports_var.set(#name, #lib_crate::Func::new(#func_name, #bindings))?; }
+        if self.error_ctor {
+            quote! { #exports_var.set(#name, #lib_crate::Func::new_error(#func_name, #bindings))?; }    
+        } else {
+            quote! { #exports_var.set(#name, #lib_crate::Func::new(#func_name, #bindings))?; }
+        }
     }
 }
 
@@ -217,9 +226,11 @@ impl Binder {
         } else if ctor {
             let src = self.top_src().clone();
             if let Some(class) = self.top_class() {
+                let error_subtype = class.error_subtype;
                 let func = class.ctor();
                 func.set_class(ident, &name, src);
                 func.fns.push(decl);
+                func.error_ctor = error_subtype;
             }
         } else if let Some(func) = self.top_item::<BindFn, _>(ident, &name, method) {
             func.fns.push(decl);

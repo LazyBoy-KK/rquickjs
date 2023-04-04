@@ -18,6 +18,8 @@ pub struct BindClass {
     pub has_refs: bool,
     /// Implements clone
     pub cloneable: bool,
+    /// Is error subtype
+    pub error_subtype: bool,
 }
 
 impl BindClass {
@@ -63,18 +65,30 @@ impl BindClass {
 
         let mut extras = quote! {};
 
-        extras.extend(quote! {
-            const HAS_PROTO: bool = true;
+        if self.error_subtype {
+            extras.extend(quote! {
+                const HAS_PROTO: bool = true;
+    
+                fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
+                    let to_string_tag = unsafe { #lib_crate::Atom::from_atom_val(ctx, #lib_crate::qjs::JS_ATOM_Symbol_toStringTag) };
+                    #exports_var.prop(to_string_tag, #lib_crate::Property::from(Self::CLASS_NAME).configurable())?;
+                    Ok(())
+                }
+            });
+        } else {
+            extras.extend(quote! {
+                const HAS_PROTO: bool = true;
+    
+                fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
+                    let to_string_tag = unsafe { #lib_crate::Atom::from_atom_val(ctx, #lib_crate::qjs::JS_ATOM_Symbol_toStringTag) };
+                    #exports_var.prop(to_string_tag, #lib_crate::Property::from(Self::CLASS_NAME).configurable())?;
+                    #(#proto_list)*
+                    Ok(())
+                }
+            });
+        }
 
-            fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
-                let to_string_tag = unsafe { #lib_crate::Atom::from_atom_val(ctx, #lib_crate::qjs::JS_ATOM_Symbol_toStringTag) };
-                #exports_var.prop(to_string_tag, #lib_crate::Property::from(Self::CLASS_NAME).configurable())?;
-                #(#proto_list)*
-                Ok(())
-            }
-        });
-
-        if !static_list.is_empty() {
+        if !self.error_subtype && !static_list.is_empty() {
             extras.extend(quote! {
                 const HAS_STATIC: bool = true;
 
@@ -85,7 +99,7 @@ impl BindClass {
             });
         }
 
-        if self.has_refs {
+        if !self.error_subtype && self.has_refs {
             extras.extend(quote! {
                 const HAS_REFS: bool = true;
 
@@ -132,29 +146,48 @@ impl BindClass {
         }
 
         let class_name = &self.class_name;
-        quote! {
-            impl #lib_crate::ClassDef for #src {
-                const CLASS_NAME: &'static str = #class_name;
-
-                unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
-                    static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
-                    &mut CLASS_ID
+        if self.error_subtype {
+            quote! {
+                impl #lib_crate::ErrorDef for #src {
+                    const CLASS_NAME: &'static str = #class_name;
+                    
+                    unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
+                        static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
+                        &mut CLASS_ID
+                    }
+    
+                    #extras
                 }
-
-                #extras
+    
+                #lib_crate::ErrorClass::<#src>::register(_ctx)?;
+    
+                #ctor_func
             }
-
-            #converts
-
-            #lib_crate::Class::<#src>::register(_ctx)?;
-
-            #ctor_func
+        } else {
+            quote! {
+                impl #lib_crate::ClassDef for #src {
+                    const CLASS_NAME: &'static str = #class_name;
+                    
+                    unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
+                        static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
+                        &mut CLASS_ID
+                    }
+                        
+                    #extras
+                }
+    
+                #converts
+    
+                #lib_crate::Class::<#src>::register(_ctx)?;
+    
+                #ctor_func
+            }
         }
     }
 }
 
 impl Binder {
-    fn update_class(&mut self, ident: &Ident, name: &str, class_name: Option<String>, has_refs: bool, cloneable: bool) {
+    fn update_class(&mut self, ident: &Ident, name: &str, class_name: Option<String>, has_refs: bool, cloneable: bool, error_subtype: bool) {
         let src = self.top_src().clone();
         let class = self.top_class().unwrap();
         class.set_src(ident, name, src);
@@ -166,6 +199,9 @@ impl Binder {
         }
         if cloneable {
             class.cloneable = true;
+        }
+        if error_subtype {
+            class.error_subtype = true;
         }
     }
 
@@ -186,6 +222,7 @@ impl Binder {
             cloneable,
             skip,
             hide,
+            error_subtype,
         } = self.get_attrs(attrs);
 
         self.hide_item(attrs, hide);
@@ -201,7 +238,7 @@ impl Binder {
 
         self.with_dir(ident, |this| {
             this.with_item::<BindClass, _>(ident, &name, |this| {
-                this.update_class(ident, &name, Some(class_name), has_refs, cloneable);
+                this.update_class(ident, &name, Some(class_name), has_refs, cloneable, error_subtype);
 
                 use Fields::*;
                 match fields {
@@ -238,6 +275,7 @@ impl Binder {
             cloneable,
             skip,
             hide,
+            error_subtype,
         } = self.get_attrs(attrs);
 
         self.hide_item(attrs, hide);
@@ -253,7 +291,7 @@ impl Binder {
 
         self.with_dir(ident, |this| {
             this.with_item::<BindClass, _>(ident, &name, |this| {
-                this.update_class(ident, &name, Some(class_name), has_refs, cloneable);
+                this.update_class(ident, &name, Some(class_name), has_refs, cloneable, error_subtype);
 
                 // TODO support for variant fields
             });
@@ -385,7 +423,7 @@ impl Binder {
 
         self.with_dir(ident, |this| {
             this.with_item::<BindClass, _>(ident, &name, |this| {
-                this.update_class(ident, &name, None, has_refs, cloneable);
+                this.update_class(ident, &name, None, has_refs, cloneable, false);
 
                 this.bind_impl_items(items);
             });

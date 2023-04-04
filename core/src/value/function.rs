@@ -37,6 +37,20 @@ impl<'js> Function<'js> {
         Ok(func)
     }
 
+    pub fn new_error<F, A, R>(ctx: Ctx<'js>, func: F) -> Result<Self>
+    where
+        F: AsFunction<'js, A, R> + ParallelSend + 'static,
+    {
+        let func = JsFunction::new(move |input: &Input<'js>| func.call(input));
+        let func = unsafe {
+            let func = func.into_error_js_value(ctx);
+            Self::from_js_value(ctx, func)
+        };
+        F::post(ctx, &func)?;
+        func.set_length(F::num_args().start)?;
+        Ok(func)
+    }
+
     /// Set the `length` property
     pub fn set_length(&self, len: usize) -> Result<()> {
         let ctx = self.0.ctx;

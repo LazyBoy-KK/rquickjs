@@ -277,6 +277,29 @@ where
     }
 }
 
+impl<N, F, A, R> Func<(N, F, bool, PhantomData<(A, R)>)> {
+    pub fn new_error(name: N, func: F) -> Self {
+        Self((name, func, true, PhantomData))
+    }
+}
+
+impl<'js, N, F, A, R> IntoJs<'js> for Func<(N, F, bool, PhantomData<(A, R)>)>
+where
+    N: AsRef<str>,
+    F: AsFunction<'js, A, R> + ParallelSend + 'static,
+{
+    fn into_js(self, ctx: Ctx<'js>) -> Result<Value<'js>> {
+        let data = self.0;
+        let func = if data.2 {
+            Function::new_error(ctx, data.1)?
+        } else {
+            Function::new(ctx, data.1)?
+        };
+        func.set_name(data.0)?;
+        func.into_js(ctx)
+    }
+}
+
 type_impls! {
     Func<F>(F): AsRef Deref;
     MutFn<F>(RefCell<F>): AsRef Deref;

@@ -6,6 +6,9 @@ use std::ops::Range;
 
 #[cfg(feature = "classes")]
 use crate::{Class, ClassDef, Constructor};
+#[cfg(feature = "classes")]
+#[cfg(feature = "quickjs-libc")]
+use crate::{ErrorDef, ErrorClass, ErrorConstructor};
 
 #[cfg(feature = "futures")]
 use crate::{Async, Promised};
@@ -350,6 +353,66 @@ where
         Ok(())
     }
 }
+
+// for constructors via Constructor wrapper
+#[cfg(feature = "classes")]
+#[cfg(feature = "quickjs-libc")]
+impl<'js, E, F, A, R> AsFunction<'js, A, R> for ErrorConstructor<E, F>
+where
+    E: ErrorDef + ParallelSend + 'static,
+    F: AsFunction<'js, A, R> + ParallelSend + 'static,
+{
+    fn num_args() -> Range<usize> {
+        F::num_args()
+    }
+
+    #[allow(unused_mut)]
+    fn call(&self, input: &Input<'js>) -> Result<Value<'js>> {
+        input.check_num_args::<Self, _, _>()?;
+
+        let mut accessor = input.access();
+        let ctx = accessor.ctx();
+        let this: Value = accessor.this()?;
+        let proto = this
+            .as_function()
+            // called as a constructor (with new keyword)
+            .map(|func| func.get_prototype())
+            // called as a function
+            .unwrap_or_else(|| {
+                if E::HAS_PROTO {
+                    ErrorClass::<E>::prototype(ctx)
+                } else {
+                    // Fallback to the a ordinary object as prototype.
+                    // more correct would be the %Object.prototype% as defined by ecma but we dont have
+                    // access to fundamental objects.
+                    crate::Object::new(ctx)
+                }
+            })?;
+        // call constructor
+        let res = self.0.call(input)?;
+        // set prototype to support inheritance
+        res.as_object()
+            .ok_or_else(|| Error::new_into_js(res.type_of().as_str(), E::CLASS_NAME))?
+            .set_prototype(&proto)?;
+        Ok(res)
+    }
+
+    fn post<'js_>(ctx: Ctx<'js_>, func: &Function<'js_>) -> Result<()> {
+        func.set_constructor(true);
+        let proto = if E::HAS_PROTO {
+            ErrorClass::<E>::prototype(ctx)?
+        } else {
+            // Fallback to the a ordinary object as prototype.
+            // more correct would be the %Object.prototype% as defined by ecma but we dont have
+            // access to fundamental objects.
+            crate::Object::new(ctx)?
+        };
+        func.set_prototype(&proto);
+        Ok(())
+    }
+}
+
+
 
 macro_rules! overloaded_impls {
     ($($(#[$meta:meta])* $func:ident<$func_args:ident, $func_res:ident> $($funcs:ident <$funcs_args:ident, $funcs_res:ident>)*,)*) => {

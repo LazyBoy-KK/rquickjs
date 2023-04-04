@@ -201,6 +201,8 @@ pub struct AttrData {
     pub skip: bool,
     /// Do not output
     pub hide: bool,
+    /// Is error subtype
+    pub error_subtype: bool,
 }
 
 impl Extend<Self> for AttrData {
@@ -223,6 +225,9 @@ impl Extend<Self> for AttrData {
             }
             if over.hide {
                 self.hide = true;
+            }
+            if over.error_subtype {
+                self.error_subtype = true;
             }
         }
     }

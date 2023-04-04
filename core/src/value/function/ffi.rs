@@ -35,6 +35,16 @@ impl<'js> JsFunction<'js> {
         obj
     }
 
+    pub unsafe fn into_error_js_value(self, ctx: Ctx<'_>) -> qjs::JSValue {
+        let obj = if let Ok(error_proto) = ctx.eval::<Object, _>("Error") {
+            qjs::JS_NewObjectProtoClass(ctx.ctx, error_proto.as_js_value() as _, Self::class_id() as _)
+        } else {
+            qjs::JS_NewObjectClass(ctx.ctx, Self::class_id() as _)
+        };
+        qjs::JS_SetOpaque(obj, Box::into_raw(Box::new(self)) as _);
+        obj
+    }
+
     unsafe fn _call(
         &self,
         ctx: *mut qjs::JSContext,

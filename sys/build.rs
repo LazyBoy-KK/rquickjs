@@ -79,6 +79,7 @@ fn main() {
 
     // generating bindings
     bindgen(out_dir, out_dir.join("quickjs.h"), &defines);
+    // bindgen(out_dir, src_dir.join("quickjs.h"), &defines);
     let mut builder = cc::Build::new();
     builder
         .extra_warnings(false)

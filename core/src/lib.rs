@@ -66,6 +66,9 @@ pub use registery_key::RegisteryKey;
 mod class;
 #[cfg(feature = "classes")]
 pub use class::{Class, ClassDef, Constructor, HasRefs, RefsMarker, WithProto};
+#[cfg(feature = "classes")]
+#[cfg(feature = "quickjs-libc")]
+pub use class::{ErrorDef, ErrorConstructor, ErrorClass};
 
 #[cfg(feature = "properties")]
 mod property;

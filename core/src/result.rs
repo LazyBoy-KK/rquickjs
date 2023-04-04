@@ -67,11 +67,11 @@ pub enum Error {
         message: Option<StdString>,
     },
     #[cfg(feature = "quickjs-libc")]
-    CompileError { message: StdString },
-    #[cfg(feature = "quickjs-libc")]
-    LinkError { message: StdString },
-    #[cfg(feature = "quickjs-libc")]
-    RuntimeError { message: StdString },
+    CustomError { 
+        name: StdString,
+        message: StdString,
+        id: qjs::JSClassID,
+    },
     #[cfg(feature = "quickjs-libc")]
     TypeError { message: StdString },
     /// Error when restoring a Persistent in a runtime other than the original runtime.
@@ -216,16 +216,10 @@ impl Error {
         matches!(self, Self::NumArgs { .. })
     }
     #[cfg(feature = "quickjs-libc")]
-    pub fn new_compile_error(message: StdString) -> Self {
-        Self::CompileError { message }
-    }
-    #[cfg(feature = "quickjs-libc")]
-    pub fn new_link_error(message: StdString) -> Self {
-        Self::LinkError { message }
-    }
-    #[cfg(feature = "quickjs-libc")]
-    pub fn new_runtime_error(message: StdString) -> Self {
-        Self::RuntimeError { message }
+    pub fn new_custom_error<'js, E>(name: StdString, message: StdString) -> Self 
+    where E: crate::ErrorDef
+    {
+        Self::CustomError { name, message, id: unsafe { E::class_id().get() } }
     }
     #[cfg(feature = "quickjs-libc")]
     pub fn new_type_error(message: StdString) -> Self {
@@ -388,24 +382,8 @@ impl Display for Error {
                 error.fmt(f)?;
             }
             #[cfg(feature = "quickjs-libc")]
-            CompileError { message } => {
-                "CompileError".fmt(f)?;
-                if !message.is_empty() {
-                    ": ".fmt(f)?;
-                    message.fmt(f)?;
-                }
-            }
-            #[cfg(feature = "quickjs-libc")]
-            LinkError { message } => {
-                "LinkError".fmt(f)?;
-                if !message.is_empty() {
-                    ": ".fmt(f)?;
-                    message.fmt(f)?;
-                }
-            }
-            #[cfg(feature = "quickjs-libc")]
-            RuntimeError { message } => {
-                "RuntimeError".fmt(f)?;
+            CustomError { name, message, .. } => {
+                name.fmt(f)?;
                 if !message.is_empty() {
                     ": ".fmt(f)?;
                     message.fmt(f)?;
@@ -468,9 +446,9 @@ impl<'js> FromJs<'js> for Error {
 impl<'js> IntoJs<'js> for &Error {
     fn into_js(self, ctx: Ctx<'js>) -> Result<Value<'js>> {
         use Error::*;
-        let value = unsafe {
-            Object::from_js_value(ctx, handle_exception(ctx, qjs::JS_NewError(ctx.ctx))?)
-        };
+        // let value = unsafe {
+        //     Object::from_js_value(ctx, handle_exception(ctx, qjs::JS_NewError(ctx.ctx))?)
+        // };
         match self {
             Exception {
                 message,
@@ -478,6 +456,9 @@ impl<'js> IntoJs<'js> for &Error {
                 line,
                 stack,
             } => {
+                let value = unsafe {
+                    Object::from_js_value(ctx, handle_exception(ctx, qjs::JS_NewError(ctx.ctx))?)
+                };
                 if !message.is_empty() {
                     value.set("message", message)?;
                 }
@@ -490,68 +471,66 @@ impl<'js> IntoJs<'js> for &Error {
                 if !stack.is_empty() {
                     value.set("stack", stack)?;
                 }
+                Ok(value.0)
             }
             #[cfg(feature = "quickjs-libc")]
-            CompileError { message } => {
-                value.set("name", "CompileError")?;
-                if !message.is_empty() {
-                    value.set("message", message)?;
-                }
-            }
-            #[cfg(feature = "quickjs-libc")]
-            LinkError { message } => {
-                value.set("name", "LinkError")?;
-                if !message.is_empty() {
-                    value.set("message", message)?;
-                }
-            }
-            #[cfg(feature = "quickjs-libc")]
-            RuntimeError { message } => {
-                value.set("name", "RuntimeError")?;
-                if !message.is_empty() {
-                    value.set("message", message)?;
-                }
+            CustomError { name, message, id } => {
+                let value = unsafe {
+                    Object::from_js_value(ctx, handle_exception(
+                        ctx,
+                        qjs::JS_NewObjectClass(ctx.ctx, id.clone() as _),
+                    )?)
+                };
+                value.set("name", name)?;
+                value.set("message", message)?;
+                Ok(value.0)
             }
             #[cfg(feature = "quickjs-libc")]
             InvalidString(_) | Utf8(_) | FromJs { .. } | IntoJs { .. } | NumArgs { .. } | TypeError { .. } => {
                 let message = format!("{self}").to_string();
-                let type_error = ctx.eval::<Object, _>("new TypeError()")?;
-                value.set_prototype(&type_error.get_prototype()?)?;
+                let obj = ctx.eval::<Object, _>("new TypeError()")?;
                 if !message.is_empty() {
-                    value.set("message", message)?;
+                    obj.set("message", message)?;
                 }
+                Ok(obj.0)
             }
             #[cfg(feature = "loader")]
             #[cfg(feature = "quickjs-libc")]
             Resolving { .. } | Loading { .. } => {
                 let message = format!("{self}").to_string();
-                let error = ctx.eval::<Object, _>("new ReferenceError()")?;
-                value.set_prototype(&error.get_prototype()?)?;
+                let obj = ctx.eval::<Object, _>("new ReferenceError()")?;
                 if !message.is_empty() {
-                    value.set("message", message)?;
+                    obj.set("message", message)?;
                 }
+                Ok(obj.0)
             }
             #[cfg(feature = "quickjs-libc")]
             Allocation => {
                 let message = "out of memory".to_string();
-                let error = ctx.eval::<Object, _>("new InteralError()")?;
-                value.set_prototype(&error.get_prototype()?)?;
-                value.set("message", message)?;
+                let obj = ctx.eval::<Object, _>("new InternalError()")?;
+                if !message.is_empty() {
+                    obj.set("message", message)?;
+                }
+                Ok(obj.0)
             }
             #[cfg(feature = "quickjs-libc")]
             Unknown => {
                 let message = format!("{self}").to_string();
-                let error = ctx.eval::<Object, _>("new InternalError()")?;
-                value.set_prototype(&error.get_prototype()?)?;
+                let obj = ctx.eval::<Object, _>("new InternalError()")?;
                 if !message.is_empty() {
-                    value.set("message", message)?;
+                    obj.set("message", message)?;
                 }
+                Ok(obj.0)
             }
             error => {
+                let value = unsafe {
+                    Object::from_js_value(ctx, handle_exception(ctx, qjs::JS_NewError(ctx.ctx))?)
+                };
                 value.set("message", error.to_string())?;
+                Ok(value.0)
             }
         }
-        Ok(value.0)
+        // Ok(value.0)
     }
 }
 
