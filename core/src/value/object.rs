@@ -226,6 +226,34 @@ impl<'js> Object<'js> {
         }
     }
 
+    /// Set an object prototype to null
+    pub fn clear_prototype(&self) -> Result<()> {
+        unsafe {
+            if 1 != qjs::JS_SetPrototype(
+                self.0.ctx.ctx,
+                self.0.as_js_value(),
+                qjs::JS_NULL,
+            ) {
+                Err(get_exception(self.0.ctx))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    pub fn prevent_extensions(&self) -> Result<()> {
+        unsafe {
+            if 1 != qjs::JS_PreventExtensions(
+                self.0.ctx.ctx,
+                self.0.as_js_value(),
+            ) {
+                Err(get_exception(self.0.ctx))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     /// Check instance of object
     pub fn is_instance_of(&self, class: impl AsRef<Value<'js>>) -> bool {
         let class = class.as_ref();

@@ -315,7 +315,7 @@ where
 {
     /// Get an integer class identifier
     #[inline(always)]
-    pub fn id() -> qjs::JSClassID {
+    pub(crate) fn id() -> qjs::JSClassID {
         unsafe { C::class_id() }.get()
     }
 
