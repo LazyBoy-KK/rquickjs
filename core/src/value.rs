@@ -337,6 +337,12 @@ impl<'js> Value<'js> {
         0 != unsafe { qjs::JS_IsError(self.ctx.ctx, self.value) }
     }
 
+    /// Check if the value is undefined
+    #[inline]
+    pub fn is_undefined(&self) -> bool {
+        unsafe { qjs::JS_IsUndefined(self.value) }
+    }
+
     /// Reference as value
     #[inline]
     pub fn as_value(&self) -> &Self {
