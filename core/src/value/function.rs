@@ -1,7 +1,10 @@
 use crate::{
     get_exception, handle_exception, qjs, Ctx, Error, FromJs, IntoAtom, IntoJs, Object,
-    ParallelSend, Result, Value,
+    ParallelSend, Result, Value, 
 };
+
+#[cfg(feature = "quickjs-libc")]
+use crate::ClassDef;
 
 mod args;
 mod as_args;
@@ -14,6 +17,9 @@ pub use as_args::{AsArguments, CallInput, IntoInput};
 pub use as_func::AsFunction;
 use ffi::JsFunction;
 pub use types::{Func, Method, MutFn, OnceFn, Opt, Rest, This};
+
+#[cfg(feature = "quickjs-libc")]
+use ffi::JsFunctionWithClass;
 
 #[cfg(feature = "futures")]
 pub use types::Async;
@@ -37,6 +43,26 @@ impl<'js> Function<'js> {
         Ok(func)
     }
 
+    #[cfg(feature = "quickjs-libc")]
+    pub fn new_custom<F, A, R>(ctx: Ctx<'js>, func: F) -> Result<Self>
+    where
+        F: AsFunction<'js, A, R> + ClassDef + ParallelSend + Clone + 'static,
+    {
+        let custom_func = func.clone();
+        unsafe { JsFunctionWithClass::<F>::register(ctx.ctx) };
+        let func = JsFunctionWithClass::<F>::new(
+            move |input: &Input<'js>| func.call(input),
+            custom_func,
+        );
+        let func = unsafe {
+            let func = func.into_js_value(ctx);
+            Self::from_js_value(ctx, func)
+        };
+        F::post(ctx, &func)?;
+        func.set_length(F::num_args().start)?;
+        Ok(func)
+    }
+
     pub fn new_error<F, A, R>(ctx: Ctx<'js>, func: F) -> Result<Self>
     where
         F: AsFunction<'js, A, R> + ParallelSend + 'static,
@@ -49,6 +75,13 @@ impl<'js> Function<'js> {
         F::post(ctx, &func)?;
         func.set_length(F::num_args().start)?;
         Ok(func)
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn get_func_opaque<C, A, R>(&self) -> Result<&'js C>
+    where C: AsFunction<'js, A, R> + ClassDef
+    {
+        unsafe { JsFunctionWithClass::<C>::get_opaque(self.as_js_value()) }
     }
 
     /// Set the `length` property
