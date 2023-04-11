@@ -70,8 +70,6 @@ impl BindClass {
                 const HAS_PROTO: bool = true;
     
                 fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
-                    let to_string_tag = unsafe { #lib_crate::Atom::from_atom_val(ctx, #lib_crate::qjs::JS_ATOM_Symbol_toStringTag) };
-                    #exports_var.prop(to_string_tag, #lib_crate::Property::from(Self::CLASS_NAME).configurable())?;
                     Ok(())
                 }
             });
