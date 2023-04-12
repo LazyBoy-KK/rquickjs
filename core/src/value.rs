@@ -343,6 +343,12 @@ impl<'js> Value<'js> {
         unsafe { qjs::JS_IsUndefined(self.value) }
     }
 
+    /// Check if the value is null
+    #[inline]
+    pub fn is_null(&self) -> bool {
+        unsafe { qjs::JS_IsNull(self.value) }
+    }
+
     /// Reference as value
     #[inline]
     pub fn as_value(&self) -> &Self {
