@@ -8,6 +8,9 @@ pub struct BindFn {
     pub fns: Vec<BindFn1>,
     pub class: Option<Source>,
     pub error_ctor: bool,
+    pub writable: bool,
+    pub enumerable: bool,
+    pub configurable: bool,
 }
 
 impl BindFn {
@@ -62,11 +65,29 @@ impl BindFn {
         } else {
             bindings
         };
-        if self.error_ctor {
-            quote! { #exports_var.set(#name, #lib_crate::Func::new_error(#func_name, #bindings))?; }    
+        let mut prop = if self.error_ctor {
+            quote!{
+                #lib_crate::Property::from(
+                    #lib_crate::Func::new_error(#func_name, #bindings)
+                )
+            }
         } else {
-            quote! { #exports_var.set(#name, #lib_crate::Func::new(#func_name, #bindings))?; }
+            quote!{
+                #lib_crate::Property::from(
+                    #lib_crate::Func::new(#func_name, #bindings)
+                )
+            }
+        };
+        if self.writable {
+            prop.extend(quote! { .writable() });
         }
+        if self.enumerable {
+            prop.extend(quote! { .enumerable() });
+        }
+        if self.configurable {
+            prop.extend(quote! { .configurable() });
+        }
+        quote! { #exports_var.prop(#name, #prop)?; }
     }
 }
 
@@ -156,6 +177,7 @@ impl Binder {
             name,
             get,
             set,
+            writable,
             configurable,
             enumerable,
             ctor,
@@ -227,13 +249,22 @@ impl Binder {
             let src = self.top_src().clone();
             if let Some(class) = self.top_class() {
                 let error_subtype = class.error_subtype;
+                let writable = class.writable;
+                let enumerable = class.enumerable;
+                let configurable = class.configurable;
                 let func = class.ctor();
                 func.set_class(ident, &name, src);
                 func.fns.push(decl);
                 func.error_ctor = error_subtype;
+                func.writable = writable;
+                func.enumerable = enumerable;
+                func.configurable = configurable;
             }
         } else if let Some(func) = self.top_item::<BindFn, _>(ident, &name, method) {
             func.fns.push(decl);
+            func.writable = writable;
+            func.enumerable = enumerable;
+            func.configurable = configurable;
         }
     }
 }

@@ -439,7 +439,7 @@ impl Binder {
 
     fn with_top<T, F>(&mut self, top: T, func: F) -> T
     where
-        T: From<Top>,
+        T: From<Top> + PropInit,
         Top: From<T>,
         F: FnOnce(&mut Self),
     {
@@ -450,9 +450,17 @@ impl Binder {
         replace(&mut self.top, top).into()
     }
 
-    fn with_item<T, F>(&mut self, ident: &Ident, name: &str, func: F)
+    fn with_item<T, F>(
+        &mut self, 
+        ident: &Ident, 
+        name: &str, 
+        writable: bool, 
+        enumerable: bool,
+        configurable: bool,
+        func: F
+    )
     where
-        T: From<Top> + Default + TryFrom<BindItem, Error = BindItem>,
+        T: From<Top> + Default + TryFrom<BindItem, Error = BindItem> + PropInit,
         Top: From<T>,
         BindItem: From<T>,
         F: FnOnce(&mut Self),
@@ -473,9 +481,15 @@ impl Binder {
                 }
             }
         } else {
-            T::default()
+            let mut item = T::default();
+            item.init_prop_flags(writable, enumerable, configurable);
+            item
         };
         let item = self.with_top(item, func);
         self.top_items(false).insert(name.into(), item.into());
     }
+}
+
+pub trait PropInit {
+    fn init_prop_flags(&mut self, writable: bool, enumerable: bool, configurable: bool);
 }

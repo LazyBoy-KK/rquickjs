@@ -56,6 +56,12 @@ pub struct AttrMod {
     pub skip: bool,
     /// Do not output
     pub hide: bool,
+    /// Set writable
+    pub writable: bool,
+    /// Set enumerable
+    pub enumerable: bool,
+    /// Set configurable
+    pub configurable: bool,
 }
 
 impl Extend<Self> for AttrMod {
@@ -72,6 +78,15 @@ impl Extend<Self> for AttrMod {
             }
             if over.hide {
                 self.hide = true;
+            }
+            if over.writable {
+                self.writable = true;
+            }
+            if over.enumerable {
+                self.enumerable = true;
+            }
+            if over.configurable {
+                self.configurable = true;
             }
         }
     }
@@ -143,6 +158,8 @@ pub struct AttrFn {
     pub get: bool,
     /// Use as setter for specified property
     pub set: bool,
+    /// Create writable property
+    pub writable: bool,
     /// Create configurable property
     pub configurable: bool,
     /// Create enumerable property
@@ -167,6 +184,9 @@ impl Extend<Self> for AttrFn {
             }
             if over.set {
                 self.set = true;
+            }
+            if over.writable {
+                self.writable = true;
             }
             if over.configurable {
                 self.configurable = true;
@@ -203,6 +223,12 @@ pub struct AttrData {
     pub hide: bool,
     /// Is error subtype
     pub error_subtype: bool,
+    /// ctor is writable
+    pub writable: bool,
+    /// ctor is enumerable
+    pub enumerable: bool,
+    /// cotr is configurable
+    pub configurable: bool,
 }
 
 impl Extend<Self> for AttrData {
@@ -228,6 +254,15 @@ impl Extend<Self> for AttrData {
             }
             if over.error_subtype {
                 self.error_subtype = true;
+            }
+            if over.writable {
+                self.writable = true;
+            }
+            if over.enumerable {
+                self.enumerable = true;
+            }
+            if over.configurable {
+                self.configurable = true;
             }
         }
     }

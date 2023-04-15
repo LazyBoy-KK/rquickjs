@@ -20,6 +20,12 @@ pub struct BindClass {
     pub cloneable: bool,
     /// Is error subtype
     pub error_subtype: bool,
+    /// ctor writable
+    pub writable: bool,
+    /// ctor enumerable
+    pub enumerable: bool,
+    /// ctor configurable
+    pub configurable: bool,
 }
 
 impl BindClass {
@@ -221,6 +227,9 @@ impl Binder {
             skip,
             hide,
             error_subtype,
+            writable,
+            enumerable,
+            configurable,
         } = self.get_attrs(attrs);
 
         self.hide_item(attrs, hide);
@@ -235,7 +244,7 @@ impl Binder {
         let class_name = class_name.unwrap_or_else(|| name.clone());
 
         self.with_dir(ident, |this| {
-            this.with_item::<BindClass, _>(ident, &name, |this| {
+            this.with_item::<BindClass, _>(ident, &name, writable, enumerable, configurable, |this| {
                 this.update_class(ident, &name, Some(class_name), has_refs, cloneable, error_subtype);
 
                 use Fields::*;
@@ -274,6 +283,9 @@ impl Binder {
             skip,
             hide,
             error_subtype,
+            writable,
+            enumerable,
+            configurable,
         } = self.get_attrs(attrs);
 
         self.hide_item(attrs, hide);
@@ -288,7 +300,7 @@ impl Binder {
         let class_name = class_name.unwrap_or_else(|| name.clone());
 
         self.with_dir(ident, |this| {
-            this.with_item::<BindClass, _>(ident, &name, |this| {
+            this.with_item::<BindClass, _>(ident, &name, writable, enumerable, configurable, |this| {
                 this.update_class(ident, &name, Some(class_name), has_refs, cloneable, error_subtype);
 
                 // TODO support for variant fields
@@ -420,7 +432,7 @@ impl Binder {
         let name = name.unwrap_or_else(|| ident.to_string());
 
         self.with_dir(ident, |this| {
-            this.with_item::<BindClass, _>(ident, &name, |this| {
+            this.with_item::<BindClass, _>(ident, &name, false, false, false, |this| {
                 this.update_class(ident, &name, None, has_refs, cloneable, false);
 
                 this.bind_impl_items(items);
@@ -438,6 +450,15 @@ impl Binder {
         }
         error!(ty, "Parametrized types is not supported.");
         None
+    }
+}
+
+impl crate::PropInit for BindClass {
+    // This function is useless here
+    fn init_prop_flags(&mut self, writable: bool, enumerable: bool, configurable: bool) {
+        self.writable = writable;
+        self.enumerable = enumerable;
+        self.configurable = configurable;
     }
 }
 

@@ -1,4 +1,4 @@
-use super::{AttrMod, BindItems, Binder};
+use super::{AttrMod, BindItems, Binder, PropInit};
 use crate::{Config, TokenStream};
 use quote::quote;
 use syn::ItemMod;
@@ -6,6 +6,9 @@ use syn::ItemMod;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BindMod {
     pub items: BindItems,
+    pub writable: bool,
+    pub enumerable: bool,
+    pub configurable: bool,
 }
 
 impl BindMod {
@@ -34,13 +37,33 @@ impl BindMod {
         let lib_crate = &cfg.lib_crate;
         let exports_var = &cfg.exports_var;
         let bindings = self.object_init(name, cfg);
-        quote! {
-            #exports_var.set(#name, {
+        let mut prop = quote!{
+            #lib_crate::Property::from({
                 let #exports_var = #lib_crate::Object::new(_ctx)?;
                 #bindings
                 #exports_var
-            })?;
+            })
+        };
+        if self.writable {
+            prop.extend(quote!{ .writable() });
         }
+        if self.enumerable {
+            prop.extend(quote!{ .enumerable() });
+        }
+        if self.configurable {
+            prop.extend(quote!{ .configurable() });
+        }
+        quote! {
+            #exports_var.prop(#name, #prop)?;
+        }
+    }
+}
+
+impl PropInit for BindMod {
+    fn init_prop_flags(&mut self, writable: bool, enumerable: bool, configurable: bool) {
+        self.writable = writable;
+        self.enumerable = enumerable;
+        self.configurable = configurable;
     }
 }
 
@@ -60,6 +83,9 @@ impl Binder {
             bare,
             skip,
             hide,
+            writable,
+            enumerable,
+            configurable,
         } = self.get_attrs(attrs);
 
         self.hide_item(attrs, hide);
@@ -77,9 +103,16 @@ impl Binder {
             if bare {
                 this.bind_items(items);
             } else {
-                this.with_item::<BindMod, _>(ident, &name, |this| {
-                    this.bind_items(items);
-                });
+                this.with_item::<BindMod, _>(
+                    ident, 
+                    &name, 
+                    writable, 
+                    enumerable, 
+                    configurable, 
+                    |this| {
+                        this.bind_items(items);
+                    }
+                );
             }
         });
     }
