@@ -123,7 +123,7 @@ wrapper_impls! {
     /// The data descriptor of a property
     Property<T>(value; writable configurable enumerable)
     /// The accessor descriptor of a readonly property
-    Accessor<G, S>(get set; configurable enumerable)
+    Accessor<G, S, A, R>(get set get_name set_name; configurable enumerable)
 }
 
 /// Create property data descriptor from value
@@ -150,109 +150,133 @@ where
     }
 }
 
-impl<G> From<G> for Accessor<G, ()> {
+impl<G> From<G> for Accessor<G, (), (), ()> {
     fn from(get: G) -> Self {
         Self {
             get,
             set: (),
+            get_name: (),
+            set_name: (),
             flags: wrapper_impls!(@flag get),
         }
     }
 }
 
-impl<G> Accessor<G, ()> {
+impl<G, A> Accessor<G, (), A, ()> {
     /// Create accessor from getter
-    pub fn new_get(get: G) -> Self {
+    pub fn new_get(get: G, get_name: A) -> Self {
         Self {
             flags: wrapper_impls!(@flag get),
             get,
+            get_name,
             set: (),
+            set_name: (),
         }
     }
 
     /// Add setter to accessor
-    pub fn set<S>(self, set: S) -> Accessor<G, S> {
+    pub fn set<S>(self, set: S) -> Accessor<G, S, A, ()> {
         Accessor {
             flags: self.flags | wrapper_impls!(@flag set),
             get: self.get,
+            get_name: self.get_name,
             set,
+            set_name: (),
         }
     }
 }
 
-impl<S> Accessor<(), S> {
+impl<S, R> Accessor<(), S, (), R> {
     /// Create accessor from setter
-    pub fn new_set(set: S) -> Self {
+    pub fn new_set(set: S, set_name: R) -> Self {
         Self {
             flags: wrapper_impls!(@flag set),
             get: (),
+            get_name: (),
             set,
+            set_name,
         }
     }
 
     /// Add getter to accessor
-    pub fn get<G>(self, get: G) -> Accessor<G, S> {
+    pub fn get<G>(self, get: G) -> Accessor<G, S, (), R> {
         Accessor {
             flags: self.flags | wrapper_impls!(@flag get),
             get,
+            get_name: (),
             set: self.set,
+            set_name: self.set_name,
         }
     }
 }
 
-impl<G, S> Accessor<G, S> {
+impl<G, S, A, R> Accessor<G, S, A, R> {
     /// Create accessor from getter and setter
-    pub fn new(get: G, set: S) -> Self {
+    pub fn new(get: G, set: S, get_name: A, set_name: R) -> Self {
         Self {
             flags: wrapper_impls!(@flag get) | wrapper_impls!(@flag set),
             get,
             set,
+            get_name,
+            set_name,
         }
     }
 }
 
 /// A property with getter only
-impl<'js, G, GA, GR> AsProperty<'js, (GA, GR, (), ())> for Accessor<G, ()>
+impl<'js, G, GA, GR, A> AsProperty<'js, (GA, GR, (), ())> for Accessor<G, (), A, ()>
 where
     G: AsFunction<'js, GA, GR> + ParallelSend + 'static,
+    A: AsRef<str>,
 {
     fn config(self, ctx: Ctx<'js>) -> Result<(PropertyFlags, Value<'js>, Value<'js>, Value<'js>)> {
+        let func = Function::new(ctx, self.get)?;
+        func.set_name(self.get_name)?;
         Ok((
             self.flags,
             Undefined.into_js(ctx)?,
-            Function::new(ctx, self.get)?.into_value(),
+            func.into_value(),
             Undefined.into_js(ctx)?,
         ))
     }
 }
 
 /// A property with setter only
-impl<'js, S, SA, SR> AsProperty<'js, ((), (), SA, SR)> for Accessor<(), S>
+impl<'js, S, SA, SR, R> AsProperty<'js, ((), (), SA, SR)> for Accessor<(), S, (), R>
 where
     S: AsFunction<'js, SA, SR> + ParallelSend + 'static,
+    R: AsRef<str>,
 {
     fn config(self, ctx: Ctx<'js>) -> Result<(PropertyFlags, Value<'js>, Value<'js>, Value<'js>)> {
+        let func = Function::new(ctx, self.set)?;
+        func.set_name(self.set_name)?;
         Ok((
             self.flags,
             Undefined.into_js(ctx)?,
             Undefined.into_js(ctx)?,
-            Function::new(ctx, self.set)?.into_value(),
+            func.into_value(),
         ))
     }
 }
 
 /// A property with getter and setter
-impl<'js, G, GA, GR, S, SA, SR> AsProperty<'js, (GA, GR, SA, SR)> for Accessor<G, S>
+impl<'js, G, GA, GR, S, SA, SR, A, R> AsProperty<'js, (GA, GR, SA, SR)> for Accessor<G, S, A, R>
 where
     G: AsFunction<'js, GA, GR> + ParallelSend + 'static,
     S: AsFunction<'js, SA, SR> + ParallelSend + 'static,
+    A: AsRef<str>,
+    R: AsRef<str>,
 {
     fn config(self, ctx: Ctx<'js>) -> Result<(PropertyFlags, Value<'js>, Value<'js>, Value<'js>)> {
+        let get_func = Function::new(ctx, self.get)?;
+        get_func.set_name(self.get_name)?;
+        let set_func = Function::new(ctx, self.set)?;
+        set_func.set_name(self.set_name)?;
         Ok((
             self.flags,
             Undefined.into_js(ctx)?,
-            Function::new(ctx, self.get)?.into_value(),
-            Function::new(ctx, self.set)?.into_value(),
+            get_func.into_value(),
+            set_func.into_value(),
         ))
     }
 }
