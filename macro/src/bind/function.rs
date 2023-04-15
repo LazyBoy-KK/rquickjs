@@ -7,6 +7,7 @@ use syn::{Attribute, FnArg, ImplItemMethod, ItemFn, Pat, Signature, Visibility};
 pub struct BindFn {
     pub fns: Vec<BindFn1>,
     pub class: Option<Source>,
+    pub func_name: Option<String>,
     pub error_ctor: bool,
     pub writable: bool,
     pub enumerable: bool,
@@ -50,7 +51,7 @@ impl BindFn {
             .iter()
             .map(|func| func.expand_pure(cfg))
             .collect::<Vec<_>>();
-        let func_name = self.func_name(name);
+        let func_name = self.func_name.clone().unwrap_or(self.func_name(name));
         let bindings = match bindings.len() {
             0 => return quote! {},
             1 => quote! { #(#bindings)* },
@@ -175,6 +176,7 @@ impl Binder {
     ) {
         let AttrFn {
             name,
+            func_name,
             get,
             set,
             writable,
@@ -238,9 +240,11 @@ impl Binder {
             if let Some(prop) = self.top_item::<BindProp, _>(ident, &name, method) {
                 if get {
                     prop.set_getter(ident, &name, decl.clone());
+                    prop.get_func_name = func_name.clone();
                 }
                 if set {
                     prop.set_setter(ident, &name, decl);
+                    prop.set_func_name = func_name;
                 }
                 prop.set_configurable(configurable);
                 prop.set_enumerable(enumerable);
@@ -259,12 +263,14 @@ impl Binder {
                 func.writable = writable;
                 func.enumerable = enumerable;
                 func.configurable = configurable;
+                func.func_name = func_name;
             }
         } else if let Some(func) = self.top_item::<BindFn, _>(ident, &name, method) {
             func.fns.push(decl);
             func.writable = writable;
             func.enumerable = enumerable;
             func.configurable = configurable;
+            func.func_name = func_name;
         }
     }
 }

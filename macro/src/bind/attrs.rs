@@ -154,6 +154,8 @@ pub struct AttrFn {
     /// Function name for export
     #[darling(rename = "rename")]
     pub name: Option<String>,
+    /// Function name property
+    pub func_name: Option<String>,
     /// Use as getter for specified property
     pub get: bool,
     /// Use as setter for specified property
@@ -178,6 +180,9 @@ impl Extend<Self> for AttrFn {
         for over in iter {
             if over.name.is_some() {
                 self.name = over.name;
+            }
+            if over.func_name.is_some() {
+                self.func_name = over.func_name;
             }
             if over.get {
                 self.get = true;

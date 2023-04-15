@@ -8,6 +8,8 @@ pub struct BindProp {
     pub val: Option<BindConst>,
     pub get: Option<BindFn1>,
     pub set: Option<BindFn1>,
+    pub get_func_name: Option<String>,
+    pub set_func_name: Option<String>,
     pub writable: bool,
     pub configurable: bool,
     pub enumerable: bool,
@@ -85,20 +87,22 @@ impl BindProp {
     pub fn expand(&self, name: &str, cfg: &Config) -> TokenStream {
         let lib_crate = &cfg.lib_crate;
         let exports_var = &cfg.exports_var;
+        let get_func_name = self.get_func_name.clone().unwrap_or(name.to_string());
+        let set_func_name = self.set_func_name.clone().unwrap_or(name.to_string());
 
         let mut value = match (&self.get, &self.set, &self.val) {
             (Some(get), Some(set), _) => {
                 let get = get.expand_pure(cfg);
                 let set = set.expand_pure(cfg);
-                quote! { #lib_crate::Accessor::new(#get, #set, #name, #name) }
+                quote! { #lib_crate::Accessor::new(#get, #set, #get_func_name, #set_func_name) }
             }
             (Some(get), _, _) => {
                 let get = get.expand_pure(cfg);
-                quote! { #lib_crate::Accessor::new_get(#get, #name) }
+                quote! { #lib_crate::Accessor::new_get(#get, #get_func_name) }
             }
             (_, Some(set), _) => {
                 let set = set.expand_pure(cfg);
-                quote! { #lib_crate::Accessor::new_set(#set, #name) }
+                quote! { #lib_crate::Accessor::new_set(#set, #set_func_name) }
             }
             (_, _, Some(val)) => {
                 let val = val.expand_pure(cfg);
