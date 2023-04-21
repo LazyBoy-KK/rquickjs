@@ -74,6 +74,8 @@ pub enum Error {
     },
     #[cfg(feature = "quickjs-libc")]
     TypeError { message: StdString },
+    #[cfg(feature = "quickjs-libc")]
+    RangeError { message: StdString },
     /// Error when restoring a Persistent in a runtime other than the original runtime.
     UnrelatedRuntime,
     /// An error from quickjs from which the specifics are unknown.
@@ -224,6 +226,10 @@ impl Error {
     #[cfg(feature = "quickjs-libc")]
     pub fn new_type_error(message: StdString) -> Self {
         Self::TypeError { message }
+    }
+    #[cfg(feature = "quickjs-libc")]
+    pub fn new_range_error(message: StdString) -> Self {
+        Self::RangeError { message }
     }
 
     /// Optimized conversion to CString
@@ -391,9 +397,17 @@ impl Display for Error {
             }
             #[cfg(feature = "quickjs-libc")]
             TypeError { message } => {
-                "TypeError".fmt(f)?;
+                // "TypeError".fmt(f)?;
                 if !message.is_empty() {
-                    ": ".fmt(f)?;
+                    // ": ".fmt(f)?;
+                    message.fmt(f)?;
+                }
+            }
+            #[cfg(feature = "quickjs-libc")]
+            RangeError { message } => {
+                // "RangeError".fmt(f)?;
+                if !message.is_empty() {
+                    // ": ".fmt(f)?;
                     message.fmt(f)?;
                 }
             }
@@ -489,6 +503,15 @@ impl<'js> IntoJs<'js> for &Error {
             InvalidString(_) | Utf8(_) | FromJs { .. } | IntoJs { .. } | NumArgs { .. } | TypeError { .. } => {
                 let message = format!("{self}").to_string();
                 let obj = ctx.eval::<Object, _>("new TypeError()")?;
+                if !message.is_empty() {
+                    obj.set("message", message)?;
+                }
+                Ok(obj.0)
+            }
+            #[cfg(feature = "quickjs-libc")]
+            RangeError { .. } => {
+                let message = format!("{self}").to_string();
+                let obj = ctx.eval::<Object, _>("new RangeError()")?;
                 if !message.is_empty() {
                     obj.set("message", message)?;
                 }

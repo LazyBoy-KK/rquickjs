@@ -161,7 +161,11 @@ where C: ClassDef
     }
 
     pub unsafe fn get_opaque(obj: qjs::JSValueConst) -> Result<&'js C> {
-        let opaque = &*(qjs::JS_GetOpaque(obj, Self::class_id()) as *mut Self);
+        let ptr = qjs::JS_GetOpaque(obj, Self::class_id()) as *const Self;
+        if ptr.is_null() {
+            return Err(Error::new_type_error(format!("Not a {} object", C::CLASS_NAME)));
+        }
+        let opaque = &*ptr;
         if opaque.class.is_null() {
             return Err(Error::new_type_error(
                 format!("Not a {} object", C::CLASS_NAME)
