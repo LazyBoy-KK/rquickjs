@@ -36,6 +36,10 @@ pub use array_buffer::ArrayBuffer;
 #[cfg(feature = "array-buffer")]
 pub use typed_array::TypedArray;
 
+#[cfg(feature = "array-buffer")]
+#[cfg(feature = "quickjs-libc")]
+pub use array_buffer::JsSharedMemory;
+
 #[cfg(feature = "futures")]
 pub use function::Async;
 

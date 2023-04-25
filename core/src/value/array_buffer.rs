@@ -45,6 +45,29 @@ impl<'js> ArrayBuffer<'js> {
         })))
     }
 
+    /// Create a shared array buffer from slice.
+    /// May panic if slice doesn't belong to js shared memory
+    pub unsafe fn new_shared<T>(ctx: Ctx<'js>, src: impl AsRef<[T]>) -> Result<Self> {
+        let src = src.as_ref();
+        let ptr = src.as_ptr();
+        let size = src.len() * size_of::<T>();
+        let obj = Object(unsafe {
+            let val = qjs::JS_NewArrayBuffer(
+                ctx.ctx, 
+                ptr as _, 
+                size as _, 
+                None, 
+                core::ptr::null_mut(), 
+                1
+            );
+            handle_exception(ctx, val)?;
+            Value::from_js_value(ctx, val)
+        });
+        obj.prevent_extensions()?;
+
+        Ok(Self(obj))
+    }
+
     /// Create array buffer from slice
     pub unsafe fn new_raw<T, F>(
         ctx: Ctx<'js>,
@@ -214,6 +237,49 @@ impl<'js> FromJs<'js> for ArrayBuffer<'js> {
 impl<'js> IntoJs<'js> for ArrayBuffer<'js> {
     fn into_js(self, _: Ctx<'js>) -> Result<Value<'js>> {
         Ok(self.into_value())
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+// shared memory has implemented atomic operators for ref counts
+pub struct JsSharedMemory {
+    mem: usize,
+    len: usize,
+}
+
+impl JsSharedMemory {
+    pub fn new(len: usize) -> Self {
+        unsafe {
+            let ptr = qjs::JS_SharedMemoryAlloc(len as _);
+            if ptr.is_null() {
+                panic!("shared memory alloc failed");
+            }
+            Self { mem: ptr as _, len }
+        }
+    }
+
+    pub fn get_raw(&self) -> (usize, usize) {
+        (self.mem, self.len)
+    }
+}
+
+impl Clone for JsSharedMemory {
+    fn clone(&self) -> Self {
+        unsafe {
+            qjs::JS_SharedMemoryDup(self.mem as _);
+            Self {
+                mem: self.mem,
+                len: self.len,
+            }
+        }
+    }
+}
+
+impl Drop for JsSharedMemory {
+    fn drop(&mut self) {
+        unsafe {
+            qjs::JS_SharedMemoryFree(self.mem as _);
+        }
     }
 }
 
