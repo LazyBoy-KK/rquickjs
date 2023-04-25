@@ -166,6 +166,8 @@ pub struct AttrFn {
     pub configurable: bool,
     /// Create enumerable property
     pub enumerable: bool,
+    /// Use with length
+    pub length: Option<usize>,
     /// Use as constructor
     #[darling(rename = "constructor")]
     pub ctor: Override<bool>,
@@ -198,6 +200,9 @@ impl Extend<Self> for AttrFn {
             }
             if over.enumerable {
                 self.enumerable = true;
+            }
+            if over.length.is_some() {
+                self.length = over.length;
             }
             if over.skip {
                 self.skip = true;

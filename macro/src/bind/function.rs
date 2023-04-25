@@ -12,6 +12,7 @@ pub struct BindFn {
     pub writable: bool,
     pub enumerable: bool,
     pub configurable: bool,
+    pub length: Option<usize>,
 }
 
 impl BindFn {
@@ -66,10 +67,18 @@ impl BindFn {
         } else {
             bindings
         };
+        let have_length = self.length.is_some();
         let mut prop = if self.error_ctor {
             quote!{
                 #lib_crate::Property::from(
                     #lib_crate::Func::new_error(#func_name, #bindings)
+                )
+            }
+        } else if have_length {
+            let length = self.length.unwrap();
+            quote!{
+                #lib_crate::Property::from(
+                    #lib_crate::Func::new_with_len(#func_name, #bindings, #length)
                 )
             }
         } else {
@@ -182,6 +191,7 @@ impl Binder {
             writable,
             configurable,
             enumerable,
+            length,
             ctor,
             skip,
             hide,
@@ -264,6 +274,7 @@ impl Binder {
                 func.enumerable = enumerable;
                 func.configurable = configurable;
                 func.func_name = func_name;
+                func.length = length;
             }
         } else if let Some(func) = self.top_item::<BindFn, _>(ident, &name, method) {
             func.fns.push(decl);
@@ -271,6 +282,7 @@ impl Binder {
             func.enumerable = enumerable;
             func.configurable = configurable;
             func.func_name = func_name;
+            func.length = length;
         }
     }
 }
