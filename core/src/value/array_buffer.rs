@@ -3,6 +3,7 @@ use std::{
     mem::{size_of, ManuallyDrop, MaybeUninit},
     ops::Deref,
     os::raw::c_void,
+    sync::Arc,
     slice,
 };
 
@@ -45,20 +46,35 @@ impl<'js> ArrayBuffer<'js> {
         })))
     }
 
-    /// Create a shared array buffer from slice.
-    /// May panic if slice doesn't belong to js shared memory
-    pub unsafe fn new_shared<T>(ctx: Ctx<'js>, src: impl AsRef<[T]>) -> Result<Self> {
-        let src = src.as_ref();
-        let ptr = src.as_ptr();
-        let size = src.len() * size_of::<T>();
+    pub unsafe fn new_shared<T>(
+        ctx: Ctx<'js>, 
+        ptr: *const u8,
+        len: usize,
+        opaque: Arc<T>,
+    ) -> Result<Self> {
+
+        unsafe extern "C" fn mem_dup<T>(opaque: *mut c_void) -> *mut c_void {
+            let opaque = Box::from_raw(opaque as *mut Arc<T>);
+            let new_opaque = opaque.clone();
+            Box::leak(opaque);
+            Box::leak(new_opaque) as *mut Arc<T> as _
+        }
+
+        unsafe extern "C" fn mem_free<T>(opaque: *mut c_void){
+            let _opaque = Box::from_raw(opaque as *mut Arc<T>);
+        }
+
+        let opaque_ptr = Box::leak(Box::new(opaque)) as *mut Arc<T>;
+
         let obj = Object(unsafe {
-            let val = qjs::JS_NewArrayBuffer(
+            let val = qjs::JS_NewSharedArrayBufferExotic(
                 ctx.ctx, 
                 ptr as _, 
-                size as _, 
+                len as _, 
                 None, 
-                core::ptr::null_mut(), 
-                1
+                Some(mem_dup::<T>),
+                Some(mem_free::<T>),
+                opaque_ptr as _,
             );
             handle_exception(ctx, val)?;
             Value::from_js_value(ctx, val)
@@ -237,49 +253,6 @@ impl<'js> FromJs<'js> for ArrayBuffer<'js> {
 impl<'js> IntoJs<'js> for ArrayBuffer<'js> {
     fn into_js(self, _: Ctx<'js>) -> Result<Value<'js>> {
         Ok(self.into_value())
-    }
-}
-
-#[cfg(feature = "quickjs-libc")]
-// shared memory has implemented atomic operators for ref counts
-pub struct JsSharedMemory {
-    mem: usize,
-    len: usize,
-}
-
-impl JsSharedMemory {
-    pub fn new(len: usize) -> Self {
-        unsafe {
-            let ptr = qjs::JS_SharedMemoryAlloc(len as _);
-            if ptr.is_null() {
-                panic!("shared memory alloc failed");
-            }
-            Self { mem: ptr as _, len }
-        }
-    }
-
-    pub fn get_raw(&self) -> (usize, usize) {
-        (self.mem, self.len)
-    }
-}
-
-impl Clone for JsSharedMemory {
-    fn clone(&self) -> Self {
-        unsafe {
-            qjs::JS_SharedMemoryDup(self.mem as _);
-            Self {
-                mem: self.mem,
-                len: self.len,
-            }
-        }
-    }
-}
-
-impl Drop for JsSharedMemory {
-    fn drop(&mut self) {
-        unsafe {
-            qjs::JS_SharedMemoryFree(self.mem as _);
-        }
     }
 }
 
