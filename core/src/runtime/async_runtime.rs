@@ -1,4 +1,6 @@
 use super::{Executor, Idle, Inner, Opaque, Spawner};
+#[cfg(feature = "quickjs-libc-threads")]
+use super::ThreadTaskSpawner;
 use crate::{ParallelSend, Runtime};
 use std::future::Future;
 
@@ -49,7 +51,8 @@ async_rt_impl! {
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "async-std")))]
     AsyncStd { async_std::task::JoinHandle<()>, async_std::task::spawn_local, async_std::task::spawn }
 
-    /// The [`smol`] async runtime for spawning executors.
+    // The [`smol`] async runtime for spawning executors.
+    #[cfg(not(feature = "quickjs-libc-threads"))]
     #[cfg(any(feature = "smol", feature = "parallel"))]
     #[cfg_attr(feature = "doc-cfg", doc(cfg(all(feature = "smol", feature = "parallel"))))]
     Smol { smol::Task<()>, smol::spawn, smol::spawn }
@@ -81,6 +84,13 @@ impl Opaque {
         self.spawner
             .as_ref()
             .expect("Async executor is not initialized for the Runtime. Possibly missing call `Runtime::run_executor()` or `Runtime::spawn_executor()`")
+    }
+
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub fn get_thread_spawner(&mut self) -> &mut ThreadTaskSpawner {
+        self.thread_task_spawner
+            .as_mut()
+            .expect("Muti-thread components are not initialized for the Runtime.")
     }
 }
 
@@ -118,6 +128,32 @@ impl Runtime {
     #[inline(always)]
     pub fn spawn_executor<A: ExecutorSpawner>(&self, spawner: A) -> A::JoinHandle {
         spawner.spawn_executor(self.run_executor())
+    }
+
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub fn init_exec_in_thread(&self) {
+        use crate::runtime::ThreadRustTaskExecutor;
+
+        let mut inner = self.inner.lock();
+        let opaque = unsafe { &mut *(inner.get_opaque_mut() as *mut Opaque) };
+        assert!(
+            opaque.thread_task_spawner.is_none(),
+            "Multi-thread components already initialized for the Runtime"
+        );
+        assert!(
+            opaque.thread_js_task_executor.is_none(),
+            "Multi-thread components already initialized for the Runtime"
+        );
+        let (
+            thread_rust_task_exec, 
+            thread_task_spawner, 
+            thread_js_task_exec
+        ) = ThreadRustTaskExecutor::new();
+        opaque.thread_task_spawner = Some(thread_task_spawner);
+        opaque.thread_js_task_executor = Some(thread_js_task_exec);
+        opaque.exec_fn = Some(Box::new(move || {
+            smol::block_on(thread_rust_task_exec);
+        }));
     }
 
     #[cfg(not(feature = "quickjs-libc"))]

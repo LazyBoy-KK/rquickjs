@@ -6,9 +6,12 @@ use pin_project_lite::pin_project;
 use std::{
     future::Future,
     pin::Pin,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{atomic::{AtomicBool, Ordering}},
     task::{Context, Poll, Waker},
 };
+
+#[cfg(feature = "quickjs-libc-threads")]
+use std::sync::{Arc, atomic::AtomicI32};
 
 #[cfg(feature = "parallel")]
 use async_task::spawn as spawn_task;
@@ -148,5 +151,169 @@ impl Future for Idle {
             }
         }
         Poll::Ready(())
+    }
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+pin_project! {
+    pub struct ThreadRustTaskExecutor {
+        #[pin]
+        rust_tasks: RecvStream<'static, Runnable>,
+        rust_waker: Sender<Waker>,
+        rust_idle: Arc<AtomicBool>,
+    }
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+impl ThreadRustTaskExecutor {
+    pub(crate) fn new() -> (Self, ThreadTaskSpawner, ThreadJsTaskExecutor) {
+        let (js_task_tx, js_task_rx) = unbounded();
+        let (rust_task_tx, rust_task_rx) = unbounded();
+        let (rust_waker_tx, rust_waker_rx) = unbounded();
+        let total = Arc::new(AtomicI32::new(0));
+        let rust_idle = Arc::new(AtomicBool::new(false));
+        (
+            Self {
+                rust_tasks: rust_task_rx.into_stream(),
+                rust_waker: rust_waker_tx,
+                rust_idle: rust_idle.clone(),
+            },
+            ThreadTaskSpawner {
+                js_tasks: js_task_tx,
+                rust_tasks: rust_task_tx,
+                total: total.clone(),
+            },
+            ThreadJsTaskExecutor {
+                js_tasks: js_task_rx.into_stream(),
+                rust_waker: rust_waker_rx,
+                rust_idle,
+                total,
+            }
+        )
+    }
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+impl Future for ThreadRustTaskExecutor {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        if let Poll::Ready(task) = self.as_mut().project().rust_tasks.poll_next(cx) {
+            if let Some(task) = task {
+                task.run();
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        } else {
+            self.rust_idle.store(true, Ordering::SeqCst);
+            self.rust_waker.send(cx.waker().clone())
+                .expect("Channel for rust waker unexpectly destroyed");
+            Poll::Pending
+        }
+    }
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+#[derive(Clone)]
+pub struct ThreadTaskSpawner {
+    js_tasks: Sender<Runnable>,
+    rust_tasks: Sender<Runnable>,
+    pub total: Arc<AtomicI32>,
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+impl ThreadTaskSpawner {
+    pub fn spawn_rust_task<F>(&mut self, future: F) -> async_task::Task<<F as Future>::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.total.fetch_add(1, Ordering::SeqCst);
+        let total = self.total.clone();
+        let (runnable, task) = async_task::spawn(
+            async move {
+                let output = future.await;
+                total.fetch_sub(1, Ordering::SeqCst);
+                output
+            }, self.rust_tasks_schedule()
+        );
+        runnable.schedule();
+        task
+    }
+
+    pub fn spawn_js_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    where
+        F: Future + 'static,
+        F::Output: Send + 'static,
+    {
+        self.total.fetch_add(1, Ordering::SeqCst);
+        let total = self.total.clone();
+        let (runnable, task) = async_task::spawn_local(
+            async move {
+                let output = future.await;
+                total.fetch_sub(1, Ordering::SeqCst);
+                output
+            }, self.js_tasks_schedule()
+        );
+        runnable.schedule();
+        task
+    }
+
+    fn js_tasks_schedule(&self) -> impl Fn(Runnable) + Send + Sync + 'static {
+        let js_task = self.js_tasks.clone();
+        move |runnable| {
+            js_task
+                .send(runnable)
+                .expect("JS task executor unexpectly destroyed");
+        }
+    }
+
+    fn rust_tasks_schedule(&self) -> impl Fn(Runnable) + Send + Sync + 'static {
+        let rust_task = self.rust_tasks.clone();
+        move |runnable| {
+            rust_task
+                .send(runnable)
+                .expect("Rust task executor unexpectly destroyed");
+        }
+    }
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+pin_project! {
+    pub struct ThreadJsTaskExecutor {
+        #[pin]
+        js_tasks: RecvStream<'static, Runnable>,
+        rust_waker: Receiver<Waker>,
+        rust_idle: Arc<AtomicBool>,
+        total: Arc<AtomicI32>,
+    }
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+impl Future for ThreadJsTaskExecutor {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        self.wake_rust_exec();
+        if let Poll::Ready(task) = self.as_mut().project().js_tasks.poll_next(cx) {
+            if let Some(task) = task {
+                task.run();
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+        }
+        Poll::Ready(())
+    }
+}
+
+#[cfg(feature = "quickjs-libc-threads")]
+impl ThreadJsTaskExecutor {
+    fn wake_rust_exec(&self) {
+        if self.rust_idle.load(Ordering::SeqCst) {
+            self.rust_idle.store(false, Ordering::SeqCst);
+            let waker = self.rust_waker.recv()
+                .expect("Channel for rust waker unexpectedly destroyed");
+            waker.wake();
+        }
     }
 }

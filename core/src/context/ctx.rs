@@ -6,6 +6,7 @@ use crate::{
 #[cfg(feature = "futures")]
 use std::future::Future;
 
+#[cfg(not(feature = "quickjs-libc-threads"))]
 #[cfg(feature = "futures")]
 use crate::ParallelSend;
 
@@ -188,6 +189,7 @@ impl<'js> Ctx<'js> {
     }
 
     /// Spawn future using configured async runtime
+    #[cfg(not(feature = "quickjs-libc-threads"))]
     #[cfg(feature = "futures")]
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
     pub fn spawn<F, T>(&self, future: F)
@@ -197,6 +199,41 @@ impl<'js> Ctx<'js> {
     {
         let opaque = unsafe { self.get_opaque() };
         opaque.get_spawner().spawn(future);
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub fn spawn<F>(&self, future: F)
+    where 
+        F: Future + 'static,
+        F::Output: Send + 'static,
+    {
+        let opaque = unsafe { self.get_opaque() };
+        let spawner = opaque.get_thread_spawner();
+        let task = spawner.spawn_js_task(future);
+        task.detach();
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub fn spawn_rust_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let opaque = unsafe { self.get_opaque() };
+        opaque.get_thread_spawner().spawn_rust_task(future)
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub fn spawn_js_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    where
+        F: Future + 'static,
+        F::Output: Send + 'static,
+    {
+        let opaque = unsafe { self.get_opaque() };
+        opaque.get_thread_spawner().spawn_js_task(future)
     }
 }
 

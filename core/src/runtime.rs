@@ -25,7 +25,7 @@ use fxhash::FxHashSet as HashSet;
 pub use qjs::JSMemoryUsage as MemoryUsage;
 
 #[cfg(feature = "allocator")]
-use crate::{allocator::AllocatorHolder, Allocator};
+use crate::{allocator::AllocatorHolder};
 
 #[cfg(feature = "loader")]
 use crate::{loader::LoaderHolder, Loader, Resolver};
@@ -58,6 +58,22 @@ pub struct Opaque {
     /// Async spawner
     #[cfg(feature = "futures")]
     pub spawner: Option<Spawner>,
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub thread_task_spawner: Option<ThreadTaskSpawner>,
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub thread_js_task_executor: Option<ThreadJsTaskExecutor>,
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub exec_fn: Option<Box<dyn FnOnce() -> () + Send>>,
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub exec_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Opaque {
@@ -70,6 +86,14 @@ impl Opaque {
             registery: HashSet::default(),
             #[cfg(feature = "futures")]
             spawner: Default::default(),
+            #[cfg(feature = "quickjs-libc-threads")]
+            thread_task_spawner: Default::default(),
+            #[cfg(feature = "quickjs-libc-threads")]
+            thread_js_task_executor: Default::default(),
+            #[cfg(feature = "quickjs-libc-threads")]
+            exec_fn: Default::default(),
+            #[cfg(feature = "quickjs-libc-threads")]
+            exec_thread: Default::default(),
         }
     }
 
@@ -90,11 +114,15 @@ impl Opaque {
         let opaque = Opaque::new(&runtime);
         let opaque = Box::leak(Box::new((opaque, runtime)));
         qjs::JS_SetRustRuntimeOpaque(rt, opaque as *mut (_, _) as *mut _);
+        #[cfg(not(feature = "quickjs-libc-threads"))]
         opaque.1.spawn_executor(crate::AsyncStd);
+        #[cfg(feature = "quickjs-libc-threads")]
+        opaque.1.init_exec_in_thread();
     }
 }
 
 #[cfg(feature = "quickjs-libc")]
+#[cfg(not(feature = "quickjs-libc-threads"))]
 #[no_mangle]
 unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
     let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
@@ -106,12 +134,43 @@ unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
 }
 
 #[cfg(feature = "quickjs-libc")]
+#[cfg(feature = "quickjs-libc-threads")]
+#[no_mangle]
+unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
+    let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
+    let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
+    let handle = opaque.0.exec_thread.unwrap();
+    opaque.0.exec_thread = None;
+    drop(opaque);
+    handle.join().expect("Rust thread join failed");
+}
+
+#[cfg(feature = "quickjs-libc")]
+#[cfg(not(feature = "quickjs-libc-threads"))]
 #[no_mangle]
 unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) {
     let opaque: &mut (Opaque, Runtime) = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
     let spawner = opaque.0.spawner.as_mut().unwrap();
     let idle = spawner.idle();
     async_std::task::block_on(idle);
+}
+
+#[cfg(feature = "quickjs-libc")]
+#[cfg(feature = "quickjs-libc-threads")]
+#[no_mangle]
+unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) -> bool {
+    let opaque: &mut (Opaque, Runtime) = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
+    let mut opaque = Box::from_raw(opaque);
+    let js_task_exec = opaque.0.thread_js_task_executor.as_mut().unwrap();
+    let spawner = opaque.0.thread_task_spawner.as_mut().unwrap();
+    if opaque.0.exec_thread.is_none() {
+        opaque.0.exec_thread = Some(std::thread::spawn(opaque.0.exec_fn.unwrap()));
+        opaque.0.exec_fn = None;
+    }
+    smol::block_on(js_task_exec);
+    let res = spawner.total.load(std::sync::atomic::Ordering::SeqCst) == 0;
+    Box::leak(opaque);
+    res
 }
 
 pub(crate) struct Inner {
