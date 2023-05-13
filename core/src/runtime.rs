@@ -139,10 +139,12 @@ unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
 unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
     let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
     let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
-    let handle = opaque.0.exec_thread.unwrap();
+    let handle = opaque.0.exec_thread;
     opaque.0.exec_thread = None;
     drop(opaque);
-    handle.join().expect("Rust thread join failed");
+    if handle.is_some() {
+        handle.unwrap().join().expect("Rust thread join failed");
+    }
 }
 
 #[cfg(feature = "quickjs-libc")]

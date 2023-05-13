@@ -260,6 +260,24 @@ impl ThreadTaskSpawner {
         task
     }
 
+    pub fn spawn_js_cross_thread_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.total.fetch_add(1, Ordering::SeqCst);
+        let total = self.total.clone();
+        let (runnable, task) = async_task::spawn(
+            async move {
+                let output = future.await;
+                total.fetch_sub(1, Ordering::SeqCst);
+                output
+            }, self.js_tasks_schedule()
+        );
+        runnable.schedule();
+        task
+    }
+
     fn js_tasks_schedule(&self) -> impl Fn(Runnable) + Send + Sync + 'static {
         let js_task = self.js_tasks.clone();
         move |runnable| {

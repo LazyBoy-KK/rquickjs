@@ -235,6 +235,17 @@ impl<'js> Ctx<'js> {
         let opaque = unsafe { self.get_opaque() };
         opaque.get_thread_spawner().spawn_js_task(future)
     }
+
+    #[cfg(feature = "quickjs-libc")]
+    #[cfg(feature = "quickjs-libc-threads")]
+    pub fn spawn_js_cross_thread_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    where 
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let opaque = unsafe { self.get_opaque() };
+        opaque.get_thread_spawner().spawn_js_cross_thread_task(future)
+    }
 }
 
 #[cfg(feature = "registery")]
