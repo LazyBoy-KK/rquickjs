@@ -159,8 +159,6 @@ pin_project! {
     pub struct ThreadRustTaskExecutor {
         #[pin]
         rust_tasks: RecvStream<'static, Runnable>,
-        rust_waker: Sender<Waker>,
-        rust_idle: Arc<AtomicBool>,
     }
 }
 
@@ -169,14 +167,10 @@ impl ThreadRustTaskExecutor {
     pub(crate) fn new() -> (Self, ThreadTaskSpawner, ThreadJsTaskExecutor) {
         let (js_task_tx, js_task_rx) = unbounded();
         let (rust_task_tx, rust_task_rx) = unbounded();
-        let (rust_waker_tx, rust_waker_rx) = unbounded();
         let total = Arc::new(AtomicI32::new(0));
-        let rust_idle = Arc::new(AtomicBool::new(false));
         (
             Self {
                 rust_tasks: rust_task_rx.into_stream(),
-                rust_waker: rust_waker_tx,
-                rust_idle: rust_idle.clone(),
             },
             ThreadTaskSpawner {
                 js_tasks: js_task_tx,
@@ -185,8 +179,6 @@ impl ThreadRustTaskExecutor {
             },
             ThreadJsTaskExecutor {
                 js_tasks: js_task_rx.into_stream(),
-                rust_waker: rust_waker_rx,
-                rust_idle,
                 total,
             }
         )
@@ -206,9 +198,7 @@ impl Future for ThreadRustTaskExecutor {
                 Poll::Ready(())
             }
         } else {
-            self.rust_idle.store(true, Ordering::SeqCst);
-            self.rust_waker.send(cx.waker().clone())
-                .expect("Channel for rust waker unexpectly destroyed");
+            cx.waker().wake_by_ref();
             Poll::Pending
         }
     }
@@ -302,8 +292,6 @@ pin_project! {
     pub struct ThreadJsTaskExecutor {
         #[pin]
         js_tasks: RecvStream<'static, Runnable>,
-        rust_waker: Receiver<Waker>,
-        rust_idle: Arc<AtomicBool>,
         total: Arc<AtomicI32>,
     }
 }
@@ -312,7 +300,6 @@ pin_project! {
 impl Future for ThreadJsTaskExecutor {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        self.wake_rust_exec();
         if let Poll::Ready(task) = self.as_mut().project().js_tasks.poll_next(cx) {
             if let Some(task) = task {
                 task.run();
@@ -321,17 +308,5 @@ impl Future for ThreadJsTaskExecutor {
             }
         }
         Poll::Ready(())
-    }
-}
-
-#[cfg(feature = "quickjs-libc-threads")]
-impl ThreadJsTaskExecutor {
-    fn wake_rust_exec(&self) {
-        if self.rust_idle.load(Ordering::SeqCst) {
-            self.rust_idle.store(false, Ordering::SeqCst);
-            let waker = self.rust_waker.recv()
-                .expect("Channel for rust waker unexpectedly destroyed");
-            waker.wake();
-        }
     }
 }
