@@ -106,9 +106,9 @@ impl<T> Persistent<T> {
         let value = self.value.get();
         if unsafe { qjs::JS_VALUE_HAS_REF_COUNT(value) } {
             unsafe { qjs::JS_MarkValue(self.rt, value, mark_func) };
-            if 0 == unsafe { qjs::JS_ValueRefCount(value) } {
-                self.value.set(qjs::JS_UNDEFINED);
-            }
+            // if 0 == unsafe { qjs::JS_ValueRefCount(value) } {
+            //     self.value.set(qjs::JS_UNDEFINED);
+            // }
         }
     }
 
