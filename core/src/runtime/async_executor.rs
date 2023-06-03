@@ -1,23 +1,33 @@
+#[cfg(not(feature = "quickjs-libc"))]
 use crate::{ParallelSend, Ref};
 use async_task::Runnable;
-use flume::{r#async::RecvStream, unbounded, Receiver, Sender};
+use flume::{r#async::RecvStream, unbounded, Sender};
+
+#[cfg(not(feature = "quickjs-libc"))]
+use flume::Receiver;
+#[cfg(not(feature = "quickjs-libc"))]
+use std::{sync::atomic::AtomicBool, task::Waker};
+
 use futures_lite::Stream;
 use pin_project_lite::pin_project;
 use std::{
     future::Future,
     pin::Pin,
-    sync::{atomic::{AtomicBool, Ordering}},
-    task::{Context, Poll, Waker},
+    sync::{atomic::Ordering},
+    task::{Context, Poll},
 };
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 use std::sync::{Arc, atomic::AtomicI32};
 
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "parallel")]
 use async_task::spawn as spawn_task;
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(not(feature = "parallel"))]
 use async_task::spawn_local as spawn_task;
 
+#[cfg(not(feature = "quickjs-libc"))]
 pin_project! {
     /// The async executor future
     ///
@@ -33,6 +43,7 @@ pin_project! {
     }
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl Executor {
     pub(crate) fn new() -> (Self, Spawner) {
         let (tasks_tx, tasks_rx) = unbounded();
@@ -53,6 +64,7 @@ impl Executor {
     }
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl Future for Executor {
     type Output = ();
 
@@ -84,12 +96,14 @@ impl Future for Executor {
     }
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 pub struct Spawner {
     tasks: Sender<Runnable>,
     idles: Sender<Waker>,
     idle: Ref<AtomicBool>,
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl Spawner {
     pub fn spawn<F>(&self, future: F)
     where
@@ -124,15 +138,18 @@ impl Spawner {
     }
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 struct InnerIdle {
     idle: Ref<AtomicBool>,
     signal: Sender<Waker>,
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 /// The idle awaiting future
 #[derive(Default)]
 pub struct Idle(Option<InnerIdle>);
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl Idle {
     fn new(idle: &Ref<AtomicBool>, sender: &Sender<Waker>) -> Self {
         Self(Some(InnerIdle {
@@ -142,6 +159,7 @@ impl Idle {
     }
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl Future for Idle {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
@@ -154,7 +172,7 @@ impl Future for Idle {
     }
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 pin_project! {
     pub struct ThreadRustTaskExecutor {
         #[pin]
@@ -162,7 +180,7 @@ pin_project! {
     }
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 impl ThreadRustTaskExecutor {
     pub(crate) fn new() -> (Self, ThreadTaskSpawner, ThreadJsTaskExecutor) {
         let (js_task_tx, js_task_rx) = unbounded();
@@ -185,7 +203,7 @@ impl ThreadRustTaskExecutor {
     }
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 impl Future for ThreadRustTaskExecutor {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
@@ -204,7 +222,7 @@ impl Future for ThreadRustTaskExecutor {
     }
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 #[derive(Clone)]
 pub struct ThreadTaskSpawner {
     js_tasks: Sender<Runnable>,
@@ -212,7 +230,7 @@ pub struct ThreadTaskSpawner {
     pub total: Arc<AtomicI32>,
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 impl ThreadTaskSpawner {
     pub fn spawn_rust_task<F>(&mut self, future: F) -> async_task::Task<<F as Future>::Output>
     where
@@ -287,7 +305,7 @@ impl ThreadTaskSpawner {
     }
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 pin_project! {
     pub struct ThreadJsTaskExecutor {
         #[pin]
@@ -296,7 +314,7 @@ pin_project! {
     }
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 impl Future for ThreadJsTaskExecutor {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {

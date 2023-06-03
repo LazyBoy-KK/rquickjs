@@ -6,7 +6,7 @@ use crate::{
 #[cfg(feature = "futures")]
 use std::future::Future;
 
-#[cfg(not(feature = "quickjs-libc-threads"))]
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "futures")]
 use crate::ParallelSend;
 
@@ -189,7 +189,7 @@ impl<'js> Ctx<'js> {
     }
 
     /// Spawn future using configured async runtime
-    #[cfg(not(feature = "quickjs-libc-threads"))]
+    #[cfg(not(feature = "quickjs-libc"))]
     #[cfg(feature = "futures")]
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
     pub fn spawn<F, T>(&self, future: F)
@@ -202,7 +202,7 @@ impl<'js> Ctx<'js> {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "futures")]
     pub fn spawn<F>(&self, future: F)
     where 
         F: Future + 'static,
@@ -215,7 +215,7 @@ impl<'js> Ctx<'js> {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "quickjs-libc")]
     pub fn spawn_rust_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
     where
         F: Future + Send + 'static,
@@ -226,7 +226,7 @@ impl<'js> Ctx<'js> {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "quickjs-libc")]
     pub fn spawn_js_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
     where
         F: Future + 'static,
@@ -237,7 +237,7 @@ impl<'js> Ctx<'js> {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "quickjs-libc")]
     pub fn spawn_js_cross_thread_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
     where 
         F: Future + Send + 'static,

@@ -56,23 +56,24 @@ pub struct Opaque {
     pub registery: HashSet<RegisteryKey>,
 
     /// Async spawner
+    #[cfg(not(feature = "quickjs-libc"))]
     #[cfg(feature = "futures")]
     pub spawner: Option<Spawner>,
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "futures")]
     pub thread_task_spawner: Option<ThreadTaskSpawner>,
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "futures")]
     pub thread_js_task_executor: Option<ThreadJsTaskExecutor>,
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "futures")]
     pub exec_fn: Option<Box<dyn FnOnce() -> () + Send>>,
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "futures")]
     pub exec_thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -84,15 +85,20 @@ impl Opaque {
             runtime: runtime.weak(),
             #[cfg(feature = "registery")]
             registery: HashSet::default(),
+            #[cfg(not(feature = "quickjs-libc"))]
             #[cfg(feature = "futures")]
             spawner: Default::default(),
-            #[cfg(feature = "quickjs-libc-threads")]
+            #[cfg(feature = "quickjs-libc")]
+            #[cfg(feature = "futures")]
             thread_task_spawner: Default::default(),
-            #[cfg(feature = "quickjs-libc-threads")]
+            #[cfg(feature = "quickjs-libc")]
+            #[cfg(feature = "futures")]
             thread_js_task_executor: Default::default(),
-            #[cfg(feature = "quickjs-libc-threads")]
+            #[cfg(feature = "quickjs-libc")]
+            #[cfg(feature = "futures")]
             exec_fn: Default::default(),
-            #[cfg(feature = "quickjs-libc-threads")]
+            #[cfg(feature = "quickjs-libc")]
+            #[cfg(feature = "futures")]
             exec_thread: Default::default(),
         }
     }
@@ -114,27 +120,23 @@ impl Opaque {
         let opaque = Opaque::new(&runtime);
         let opaque = Box::leak(Box::new((opaque, runtime)));
         qjs::JS_SetRustRuntimeOpaque(rt, opaque as *mut (_, _) as *mut _);
-        #[cfg(not(feature = "quickjs-libc-threads"))]
-        opaque.1.spawn_executor(crate::AsyncStd);
-        #[cfg(feature = "quickjs-libc-threads")]
+        // opaque.1.spawn_executor(crate::AsyncStd);
         opaque.1.init_exec_in_thread();
     }
 }
 
-#[cfg(feature = "quickjs-libc")]
-#[cfg(not(feature = "quickjs-libc-threads"))]
-#[no_mangle]
-unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
-    let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
-    let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
-    let spawner = opaque.0.spawner.as_mut().unwrap();
-    let idle = spawner.idle();
-    async_std::task::block_on(idle);
-    drop(opaque);
-}
+// #[cfg(feature = "quickjs-libc")]
+// #[no_mangle]
+// unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
+//     let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
+//     let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
+//     let spawner = opaque.0.spawner.as_mut().unwrap();
+//     let idle = spawner.idle();
+//     async_std::task::block_on(idle);
+//     drop(opaque);
+// }
 
 #[cfg(feature = "quickjs-libc")]
-#[cfg(feature = "quickjs-libc-threads")]
 #[no_mangle]
 unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
     let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
@@ -147,18 +149,16 @@ unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
     }
 }
 
-#[cfg(feature = "quickjs-libc")]
-#[cfg(not(feature = "quickjs-libc-threads"))]
-#[no_mangle]
-unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) {
-    let opaque: &mut (Opaque, Runtime) = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
-    let spawner = opaque.0.spawner.as_mut().unwrap();
-    let idle = spawner.idle();
-    async_std::task::block_on(idle);
-}
+// #[cfg(feature = "quickjs-libc")]
+// #[no_mangle]
+// unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) {
+//     let opaque: &mut (Opaque, Runtime) = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
+//     let spawner = opaque.0.spawner.as_mut().unwrap();
+//     let idle = spawner.idle();
+//     async_std::task::block_on(idle);
+// }
 
 #[cfg(feature = "quickjs-libc")]
-#[cfg(feature = "quickjs-libc-threads")]
 #[no_mangle]
 unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) -> bool {
     let opaque: &mut (Opaque, Runtime) = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
@@ -211,11 +211,11 @@ impl Inner {
         }
     }
 
-    #[cfg(feature = "futures")]
-    #[cfg(feature = "quickjs-libc")]
-    pub(crate) unsafe fn get_opaque(&self) -> &Opaque {
-        &*(qjs::JS_GetRustRuntimeOpaque(self.rt) as *const _)
-    }
+    // #[cfg(feature = "futures")]
+    // #[cfg(feature = "quickjs-libc")]
+    // pub(crate) unsafe fn get_opaque(&self) -> &Opaque {
+    //     &*(qjs::JS_GetRustRuntimeOpaque(self.rt) as *const _)
+    // }
 
     #[cfg(feature = "futures")]
     #[cfg(not(feature = "quickjs-libc"))]

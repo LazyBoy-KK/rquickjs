@@ -1,9 +1,15 @@
-use super::{Executor, Idle, Inner, Opaque, Spawner};
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(not(feature = "quickjs-libc"))]
+use super::{Executor, Idle, Spawner};
+use super::{Inner, Opaque};
+#[cfg(feature = "quickjs-libc")]
 use super::ThreadTaskSpawner;
-use crate::{ParallelSend, Runtime};
+use crate::Runtime;
+#[cfg(not(feature = "quickjs-libc"))]
+use crate::ParallelSend;
+#[cfg(not(feature = "quickjs-libc"))]
 use std::future::Future;
 
+#[cfg(not(feature = "quickjs-libc"))]
 /// The trait to spawn execution of pending jobs on async runtime
 #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
 pub trait ExecutorSpawner: Sized {
@@ -14,6 +20,7 @@ pub trait ExecutorSpawner: Sized {
     fn spawn_executor(self, task: Executor) -> Self::JoinHandle;
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 macro_rules! async_rt_impl {
     ($($(#[$meta:meta])* $type:ident { $join_handle:ty, $spawn_local:path, $spawn:path })*) => {
         $(
@@ -40,6 +47,7 @@ macro_rules! async_rt_impl {
     };
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 async_rt_impl! {
     /// The [`tokio`] async runtime for spawning executors.
     #[cfg(feature = "tokio")]
@@ -52,17 +60,20 @@ async_rt_impl! {
     AsyncStd { async_std::task::JoinHandle<()>, async_std::task::spawn_local, async_std::task::spawn }
 
     // The [`smol`] async runtime for spawning executors.
-    #[cfg(not(feature = "quickjs-libc-threads"))]
+    #[cfg(not(feature = "quickjs-libc"))]
     #[cfg(any(feature = "smol", feature = "parallel"))]
     #[cfg_attr(feature = "doc-cfg", doc(cfg(all(feature = "smol", feature = "parallel"))))]
     Smol { smol::Task<()>, smol::spawn, smol::spawn }
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(all(feature = "smol", feature = "parallel"))]
 use smol::Executor as SmolExecutor;
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(all(feature = "smol", not(feature = "parallel")))]
 use smol::LocalExecutor as SmolExecutor;
 
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "smol")]
 impl<'a> ExecutorSpawner for &SmolExecutor<'a> {
     type JoinHandle = smol::Task<()>;
@@ -80,13 +91,14 @@ impl Inner {
 }
 
 impl Opaque {
+    #[cfg(not(feature = "quickjs-libc"))]
     pub fn get_spawner(&self) -> &Spawner {
         self.spawner
             .as_ref()
             .expect("Async executor is not initialized for the Runtime. Possibly missing call `Runtime::run_executor()` or `Runtime::spawn_executor()`")
     }
 
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "quickjs-libc")]
     pub fn get_thread_spawner(&mut self) -> &mut ThreadTaskSpawner {
         self.thread_task_spawner
             .as_mut()
@@ -95,12 +107,14 @@ impl Opaque {
 }
 
 impl Runtime {
+    #[cfg(not(feature = "quickjs-libc"))]
     fn get_spawner(&self) -> &Spawner {
         let inner = self.inner.lock();
         let opaque = unsafe { &*(inner.get_opaque() as *const Opaque) };
         opaque.get_spawner()
     }
 
+    #[cfg(not(feature = "quickjs-libc"))]
     /// Await until all pending jobs and spawned futures will be done
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
     #[inline(always)]
@@ -108,6 +122,7 @@ impl Runtime {
         self.get_spawner().idle()
     }
 
+    #[cfg(not(feature = "quickjs-libc"))]
     /// Run pending jobs and futures executor
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
     #[inline(always)]
@@ -123,6 +138,7 @@ impl Runtime {
         executor
     }
 
+    #[cfg(not(feature = "quickjs-libc"))]
     /// Spawn pending jobs and futures executor
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
     #[inline(always)]
@@ -130,7 +146,7 @@ impl Runtime {
         spawner.spawn_executor(self.run_executor())
     }
 
-    #[cfg(feature = "quickjs-libc-threads")]
+    #[cfg(feature = "quickjs-libc")]
     pub fn init_exec_in_thread(&self) {
         use crate::runtime::ThreadRustTaskExecutor;
 
@@ -180,6 +196,7 @@ impl Runtime {
     }
 
     /// Spawn future using runtime
+    #[cfg(not(feature = "quickjs-libc"))]
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
     pub fn spawn<F, T>(&self, future: F)
     where

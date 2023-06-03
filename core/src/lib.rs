@@ -35,13 +35,15 @@ pub use result::{Error, Result};
 mod safe_ref;
 pub(crate) use safe_ref::*;
 mod runtime;
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "async-std")]
 pub use runtime::AsyncStd;
-#[cfg(not(feature = "quickjs-libc-threads"))]
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(any(feature = "smol", feature = "parallel"))]
 pub use runtime::Smol;
 #[cfg(feature = "tokio")]
 pub use runtime::Tokio;
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "futures")]
 pub use runtime::{Executor, ExecutorSpawner, Idle};
 pub use runtime::{MemoryUsage, Runtime};

@@ -79,19 +79,19 @@ impl<T> Future for Promise<T> {
 }
 
 /// Wrapper for futures to convert to JS promises
-#[cfg(not(feature = "quickjs-libc-threads"))]
+#[cfg(not(feature = "quickjs-libc"))]
 #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
 #[repr(transparent)]
 pub struct Promised<T>(pub T);
 
-#[cfg(not(feature = "quickjs-libc-threads"))]
+#[cfg(not(feature = "quickjs-libc"))]
 impl<T> From<T> for Promised<T> {
     fn from(future: T) -> Self {
         Self(future)
     }
 }
 
-#[cfg(not(feature = "quickjs-libc-threads"))]
+#[cfg(not(feature = "quickjs-libc"))]
 impl<'js, T> IntoJs<'js> for Promised<T>
 where
     T: Future + ParallelSend + 'static,
@@ -122,10 +122,10 @@ where
     }
 }
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 pub struct Promised<T>(pub T);
 
-#[cfg(feature = "quickjs-libc-threads")]
+#[cfg(feature = "quickjs-libc")]
 impl<'js, T> IntoJs<'js> for Promised<T>
 where
     T: Future + 'static,

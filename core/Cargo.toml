@@ -124,9 +124,6 @@ array-buffer = []
 # Enable quickjs-libc compatable code path
 quickjs-libc = ["rquickjs-sys/quickjs-libc"]
 
-# Enable async rust code in threads
-quickjs-libc-threads = []
-
 # Enable interop between Rust futures and JS Promises
 futures = ["pin-project-lite", "futures-lite", "async-task", "flume"]
 
