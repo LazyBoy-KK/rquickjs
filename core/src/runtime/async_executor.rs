@@ -1,10 +1,8 @@
 #[cfg(not(feature = "quickjs-libc"))]
 use crate::{ParallelSend, Ref};
 use async_task::Runnable;
-use flume::{r#async::RecvStream, unbounded, Sender};
+use flume::{r#async::RecvStream, unbounded, Sender, Receiver};
 
-#[cfg(not(feature = "quickjs-libc"))]
-use flume::Receiver;
 #[cfg(not(feature = "quickjs-libc"))]
 use std::{sync::atomic::AtomicBool, task::Waker};
 
@@ -173,11 +171,8 @@ impl Future for Idle {
 }
 
 #[cfg(feature = "quickjs-libc")]
-pin_project! {
-    pub struct ThreadRustTaskExecutor {
-        #[pin]
-        rust_tasks: RecvStream<'static, Runnable>,
-    }
+pub struct ThreadRustTaskExecutor {
+    rust_tasks: Receiver<Runnable>,
 }
 
 #[cfg(feature = "quickjs-libc")]
@@ -188,7 +183,7 @@ impl ThreadRustTaskExecutor {
         let total = Arc::new(AtomicI32::new(0));
         (
             Self {
-                rust_tasks: rust_task_rx.into_stream(),
+                rust_tasks: rust_task_rx,
             },
             ThreadTaskSpawner {
                 js_tasks: js_task_tx,
@@ -206,18 +201,13 @@ impl ThreadRustTaskExecutor {
 #[cfg(feature = "quickjs-libc")]
 impl Future for ThreadRustTaskExecutor {
     type Output = ();
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        if let Poll::Ready(task) = self.as_mut().project().rust_tasks.poll_next(cx) {
-            if let Some(task) = task {
-                task.run();
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        } else {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        if let Ok(task) = self.rust_tasks.recv() {
+            task.run();
             cx.waker().wake_by_ref();
             Poll::Pending
+        } else {
+            Poll::Ready(())
         }
     }
 }
@@ -232,7 +222,7 @@ pub struct ThreadTaskSpawner {
 
 #[cfg(feature = "quickjs-libc")]
 impl ThreadTaskSpawner {
-    pub fn spawn_rust_task<F>(&mut self, future: F) -> async_task::Task<<F as Future>::Output>
+    pub fn spawn_rust_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,

@@ -169,7 +169,7 @@ unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) -> bool {
         opaque.0.exec_thread = Some(std::thread::spawn(opaque.0.exec_fn.unwrap()));
         opaque.0.exec_fn = None;
     }
-    smol::block_on(js_task_exec);
+    futures_lite::future::block_on(js_task_exec);
     let res = spawner.total.load(std::sync::atomic::Ordering::SeqCst) == 0;
     Box::leak(opaque);
     res

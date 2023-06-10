@@ -168,7 +168,7 @@ impl Runtime {
         opaque.thread_task_spawner = Some(thread_task_spawner);
         opaque.thread_js_task_executor = Some(thread_js_task_exec);
         opaque.exec_fn = Some(Box::new(move || {
-            smol::block_on(thread_rust_task_exec);
+            futures_lite::future::block_on(thread_rust_task_exec);
         }));
     }
 
