@@ -2,7 +2,7 @@
 use super::{Executor, Idle, Spawner};
 use super::{Inner, Opaque};
 #[cfg(feature = "quickjs-libc")]
-use super::ThreadTaskSpawner;
+use super::AsyncCtx;
 use crate::Runtime;
 #[cfg(not(feature = "quickjs-libc"))]
 use crate::ParallelSend;
@@ -99,8 +99,8 @@ impl Opaque {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    pub fn get_thread_spawner(&mut self) -> &mut ThreadTaskSpawner {
-        self.thread_task_spawner
+    pub fn get_async_ctx(&mut self) -> &mut AsyncCtx {
+        self.async_ctx
             .as_mut()
             .expect("Muti-thread components are not initialized for the Runtime.")
     }
@@ -148,28 +148,19 @@ impl Runtime {
 
     #[cfg(feature = "quickjs-libc")]
     pub fn init_exec_in_thread(&self) {
-        use crate::runtime::ThreadRustTaskExecutor;
-
         let mut inner = self.inner.lock();
         let opaque = unsafe { &mut *(inner.get_opaque_mut() as *mut Opaque) };
         assert!(
-            opaque.thread_task_spawner.is_none(),
-            "Multi-thread components already initialized for the Runtime"
-        );
-        assert!(
-            opaque.thread_js_task_executor.is_none(),
+            opaque.thread_js_task_executor.is_none() && 
+                opaque.async_ctx.is_none(),
             "Multi-thread components already initialized for the Runtime"
         );
         let (
-            thread_rust_task_exec, 
-            thread_task_spawner, 
-            thread_js_task_exec
-        ) = ThreadRustTaskExecutor::new();
-        opaque.thread_task_spawner = Some(thread_task_spawner);
+            async_ctx,
+            thread_js_task_exec,
+        ) = AsyncCtx::new();
         opaque.thread_js_task_executor = Some(thread_js_task_exec);
-        opaque.exec_fn = Some(Box::new(move || {
-            futures_lite::future::block_on(thread_rust_task_exec);
-        }));
+        opaque.async_ctx = Some(async_ctx);
     }
 
     #[cfg(not(feature = "quickjs-libc"))]

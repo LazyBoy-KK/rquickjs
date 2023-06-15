@@ -10,6 +10,10 @@ use std::future::Future;
 #[cfg(feature = "futures")]
 use crate::ParallelSend;
 
+#[cfg(feature = "quickjs-libc")]
+#[cfg(feature = "futures")]
+use crate::runtime::AsyncCtx;
+
 #[cfg(feature = "registery")]
 use crate::RegisteryKey;
 
@@ -209,42 +213,16 @@ impl<'js> Ctx<'js> {
         F::Output: Send + 'static,
     {
         let opaque = unsafe { self.get_opaque() };
-        let spawner = opaque.get_thread_spawner();
-        let task = spawner.spawn_js_task(future);
+        let async_ctx = opaque.get_async_ctx();
+        let task = async_ctx.spawn_js_task(future);
         task.detach();
     }
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc")]
-    pub fn spawn_rust_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
+    #[cfg(feature = "futures")]
+    pub fn async_ctx(&self) -> &AsyncCtx {
         let opaque = unsafe { self.get_opaque() };
-        opaque.get_thread_spawner().spawn_rust_task(future)
-    }
-
-    #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc")]
-    pub fn spawn_js_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
-    where
-        F: Future + 'static,
-        F::Output: Send + 'static,
-    {
-        let opaque = unsafe { self.get_opaque() };
-        opaque.get_thread_spawner().spawn_js_task(future)
-    }
-
-    #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "quickjs-libc")]
-    pub fn spawn_js_cross_thread_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
-    where 
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        let opaque = unsafe { self.get_opaque() };
-        opaque.get_thread_spawner().spawn_js_cross_thread_task(future)
+        opaque.get_async_ctx()
     }
 }
 

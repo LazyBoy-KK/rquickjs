@@ -47,6 +47,9 @@ pub use runtime::Tokio;
 #[cfg(feature = "futures")]
 pub use runtime::{Executor, ExecutorSpawner, Idle};
 pub use runtime::{MemoryUsage, Runtime};
+#[cfg(feature = "quickjs-libc")]
+#[cfg(feature = "futures")]
+pub use runtime::AsyncCtx;
 mod context;
 pub use context::{intrinsic, Context, ContextBuilder, Ctx, EvalOptions, Intrinsic, MultiWith};
 mod value;
