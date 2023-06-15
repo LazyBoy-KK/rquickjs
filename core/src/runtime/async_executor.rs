@@ -204,9 +204,10 @@ impl ThreadRustTaskExecutor {
             match self.rust_tasks.try_recv() {
                 Ok(task) => { task.run(); }
                 Err(flume::TryRecvError::Empty) => {
-                    std::thread::park();
                     if !is_spawning {
                         break true;
+                    } else {
+                        std::thread::park();
                     }
                 }
                 Err(flume::TryRecvError::Disconnected) => break false,
@@ -277,13 +278,12 @@ impl AsyncCtx {
         let mut cx = Context::from_waker(&waker);
 
         loop {
+            if !self.executor.run(false) {
+                break None;
+            }
             match future.as_mut().poll(&mut cx) {
                 Poll::Ready(output) => return Some(output),
-                Poll::Pending => {
-                    if !self.executor.run(false) {
-                        break None;
-                    }
-                }
+                Poll::Pending => std::thread::park(),
             }
         }
     }
