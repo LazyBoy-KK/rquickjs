@@ -244,6 +244,13 @@ impl<'js> Function<'js> {
         0 != unsafe { qjs::JS_IsConstructor(self.0.ctx.ctx, self.0.as_js_value()) }
     }
 
+    #[cfg(feature = "quickjs-libc")]
+    pub fn is_async_function(&self) -> bool {
+        1 == unsafe {
+            qjs::JS_IsAsyncFunction(self.0.ctx.ctx, self.0.as_js_value())
+        }
+    }
+
     /// Mark the function as a constructor
     pub fn set_constructor(&self, flag: bool) {
         unsafe { qjs::JS_SetConstructorBit(self.0.ctx.ctx, self.0.as_js_value(), i32::from(flag)) };

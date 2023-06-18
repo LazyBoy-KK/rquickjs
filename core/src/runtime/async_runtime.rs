@@ -151,15 +151,10 @@ impl Runtime {
         let mut inner = self.inner.lock();
         let opaque = unsafe { &mut *(inner.get_opaque_mut() as *mut Opaque) };
         assert!(
-            opaque.thread_js_task_executor.is_none() && 
-                opaque.async_ctx.is_none(),
+            opaque.async_ctx.is_none(),
             "Multi-thread components already initialized for the Runtime"
         );
-        let (
-            async_ctx,
-            thread_js_task_exec,
-        ) = AsyncCtx::new();
-        opaque.thread_js_task_executor = Some(thread_js_task_exec);
+        let async_ctx = AsyncCtx::new();
         opaque.async_ctx = Some(async_ctx);
     }
 
