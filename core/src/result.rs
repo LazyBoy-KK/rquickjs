@@ -441,6 +441,7 @@ impl From<FromUtf8Error> for Error {
     }
 }
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl<'js> FromJs<'js> for Error {
     fn from_js(ctx: Ctx<'js>, value: Value<'js>) -> Result<Self> {
         let obj = Object::from_js(ctx, value)?;
@@ -450,6 +451,30 @@ impl<'js> FromJs<'js> for Error {
                 file: obj.get("fileName").unwrap_or_else(|_| "".into()),
                 line: obj.get("lineNumber").unwrap_or(-1),
                 stack: obj.get("stack").unwrap_or_else(|_| "".into()),
+            })
+        } else {
+            Err(Error::new_from_js("object", "error"))
+        }
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+impl<'js> FromJs<'js> for Error {
+    fn from_js(ctx: Ctx<'js>, value: Value<'js>) -> Result<Self> {
+        let obj = Object::from_js(ctx, value)?;
+        if obj.is_error() {
+            Ok(Error::Exception {
+                message: obj.get("message").unwrap_or_else(|_| "".into()),
+                file: obj.get("fileName").unwrap_or_else(|_| "".into()),
+                line: obj.get("lineNumber").unwrap_or(-1),
+                stack: obj.get("stack").unwrap_or_else(|_| "".into()),
+            })
+        } else if obj.instance_of_error() {
+            let id = obj.get_class_id();
+            Ok(Error::CustomError { 
+                name: obj.get("name").unwrap_or_else(|_| "".into()), 
+                message: obj.get("message").unwrap_or_else(|_| "".into()), 
+                id,
             })
         } else {
             Err(Error::new_from_js("object", "error"))

@@ -98,8 +98,7 @@ impl<'js> JsFunction<'js> {
         let ctx = Ctx::from_ptr(ctx);
         let call_ctor = _flags as u32 & qjs::JS_CALL_FLAG_CONSTRUCTOR;
         if (is_ctor ^ call_ctor) == 1 {
-            let mut error_str = String::from("must be called with new").into_bytes();
-            error_str.pop();
+            let error_str = String::from("must be called with new").into_bytes();
             let message = std::ffi::CString::from_vec_unchecked(error_str);
             return qjs::JS_ThrowTypeError(ctx.ctx, message.as_ptr());
         }
@@ -223,8 +222,7 @@ where C: ClassDef
         let ctx = Ctx::from_ptr(ctx);
         let call_ctor = _flags as u32 & qjs::JS_CALL_FLAG_CONSTRUCTOR;
         if (is_ctor ^ call_ctor) == 1 {
-            let mut error_str = String::from("must be called with new").into_bytes();
-            error_str.pop();
+            let error_str = String::from("must be called with new").into_bytes();
             let message = std::ffi::CString::from_vec_unchecked(error_str);
             return qjs::JS_ThrowTypeError(ctx.ctx, message.as_ptr());
         }
