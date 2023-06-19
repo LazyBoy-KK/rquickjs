@@ -260,28 +260,28 @@ impl AsyncCtx {
     /// pending.
     /// Returns Some(Future::Output) when the future returns Poll::Ready(Output)
     /// Returns None when message queues have been dropped
-    pub fn block_on_rust<F>(&self, future: F) -> Option<F::Output>
-    where
-        F: Future + 'static
-    {
-        futures_lite::pin!(future);
-        let handle = self.spawner.get_mut_handle().as_ref().unwrap();
-        let thread = handle.thread().clone();
-        let waker = waker_fn::waker_fn(move || {
-            thread.unpark();
-        });
-        let mut cx = Context::from_waker(&waker);
+    // pub fn block_on_rust<F>(&self, future: F) -> Option<F::Output>
+    // where
+    //     F: Future + 'static
+    // {
+    //     futures_lite::pin!(future);
+    //     let handle = self.spawner.get_mut_handle().as_ref().unwrap();
+    //     let thread = handle.thread().clone();
+    //     let waker = waker_fn::waker_fn(move || {
+    //         thread.unpark();
+    //     });
+    //     let mut cx = Context::from_waker(&waker);
 
-        loop {
-            if !self.rust_exec.run(false) {
-                break None;
-            }
-            match future.as_mut().poll(&mut cx) {
-                Poll::Ready(output) => return Some(output),
-                Poll::Pending => std::thread::park(),
-            }
-        }
-    }
+    //     loop {
+    //         if !self.rust_exec.run(false) {
+    //             break None;
+    //         }
+    //         match future.as_mut().poll(&mut cx) {
+    //             Poll::Ready(output) => return Some(output),
+    //             Poll::Pending => std::thread::park(),
+    //         }
+    //     }
+    // }
 
     pub fn block_on_js<F>(&self, future: F) -> F::Output 
     where

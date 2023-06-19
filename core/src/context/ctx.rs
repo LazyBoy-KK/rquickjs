@@ -87,20 +87,6 @@ impl<'js> Ctx<'js> {
         }
     }
 
-    /// Safety:
-    /// Getting js context in different thread without checking is 
-    /// dangerous. But RefMut sometimes also prevents getting js 
-    /// context in single thread.
-    /// This function will only be called in single thread to guaranteen
-    /// its safety.
-    #[cfg(feature = "quickjs-libc")]
-    pub fn new_unchecked(ctx: &'js Context) -> Self {
-        Ctx {
-            ctx: ctx.ctx,
-            marker: PhantomData,
-        }
-    }
-
     pub(crate) unsafe fn eval_raw<S: Into<Vec<u8>>>(
         self,
         source: S,
