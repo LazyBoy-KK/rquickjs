@@ -11,6 +11,9 @@ use futures_lite::Stream;
 
 use flume::{unbounded, Sender, Receiver};
 
+#[cfg(feature = "quickjs-libc")]
+use flume::bounded;
+
 #[cfg(not(feature = "quickjs-libc"))]
 use std::{task::Waker, pin::Pin};
 
@@ -221,12 +224,14 @@ impl AsyncCtx {
     pub(crate) fn new() -> Self {
         let (js_task_tx, js_task_rx) = unbounded();
         let (rust_task_tx, rust_task_rx) = unbounded();
+        let (import_js_task_tx, import_js_task_rx) = bounded(1);
         let total = Arc::new(AtomicI32::new(0));
         let closed = Arc::new(AtomicBool::new(true));
 
         let spawner = ThreadTaskSpawner { 
             js_tasks: js_task_tx, 
             rust_tasks: rust_task_tx, 
+            import_js_task: import_js_task_tx,
             total: total.clone(),
             handle: Arc::new(UnsafeCell::new(None)),
         };
@@ -238,6 +243,7 @@ impl AsyncCtx {
 
         let js_exec = Arc::new(ThreadJsTaskExecutor {
             js_tasks: js_task_rx,
+            import_js_task: import_js_task_rx,
             total,
         });
 
@@ -350,6 +356,7 @@ impl AsyncCtx {
 #[derive(Clone)]
 pub struct ThreadTaskSpawner {
     js_tasks: Sender<Runnable>,
+    import_js_task: Sender<Runnable>,
     rust_tasks: Sender<Runnable>,
     total: Arc<AtomicI32>,
     handle: Arc<UnsafeCell<Option<std::thread::JoinHandle<()>>>>,
@@ -404,7 +411,7 @@ impl ThreadTaskSpawner {
                 let output = future.await;
                 total.fetch_sub(1, Ordering::SeqCst);
                 output
-            }, self.js_tasks_schedule()
+            }, self.import_js_task_schehdule()
         );
         runnable.schedule();
         task
@@ -416,6 +423,15 @@ impl ThreadTaskSpawner {
             js_task
                 .send(runnable)
                 .expect("JS task executor unexpectly destroyed");
+        }
+    }
+
+    fn import_js_task_schehdule(&self) -> impl Fn(Runnable) + Send + Sync + 'static {
+        let import_js_task = self.import_js_task.clone();
+        move |runnable| {
+            import_js_task
+                .send(runnable)
+                .expect("Sending import JS task error");
         }
     }
 
@@ -451,12 +467,16 @@ unsafe impl Sync for ThreadTaskSpawner {}
 #[cfg(feature = "quickjs-libc")]
 pub struct ThreadJsTaskExecutor {
     js_tasks: Receiver<Runnable>,
+    import_js_task: Receiver<Runnable>,
     total: Arc<AtomicI32>,
 }
 
 #[cfg(feature = "quickjs-libc")]
 impl ThreadJsTaskExecutor {
     pub fn run(&self) -> bool {
+        if let Ok(task) = self.import_js_task.try_recv() {
+            task.run();
+        }
         if let Ok(task) = self.js_tasks.try_recv() {
             task.run();
         }
