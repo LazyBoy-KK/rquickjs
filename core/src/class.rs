@@ -141,22 +141,6 @@ pub trait ClassDef {
 pub trait ErrorDef {
     /// The name of a class
     const CLASS_NAME: &'static str;
-
-    /// The reference to class identifier
-    ///
-    /// # Safety
-    /// This method should return reference to mutable static class id which should be initialized to zero.
-    unsafe fn class_id() -> &'static mut ClassId;
-
-    /// The class has prototype
-    const HAS_PROTO: bool = false;
-
-    /// The prototype initializer method
-    fn init_proto<'js>(ctx: Ctx<'js>, proto: &Object<'js>) -> Result<()> {
-        let to_string_tag = unsafe { Atom::from_atom_val(ctx, qjs::JS_ATOM_Symbol_toStringTag) };
-        proto.prop(to_string_tag, Property::from(Self::CLASS_NAME).configurable())?;
-        Ok(())
-    }
 }
 
 pub struct ErrorClass<'js, E>(pub(crate) Object<'js>, PhantomData<E>);
@@ -188,68 +172,10 @@ impl<'js, E> AsRef<Value<'js>> for ErrorClass<'js, E> {
 impl<'js, E> ErrorClass<'js, E> 
 where E: ErrorDef,
 {
-    /// Get an integer class identifier
-    #[inline(always)]
-    pub fn id() -> qjs::JSClassID {
-        unsafe { E::class_id() }.get()
-    }
-
     /// Wrap constructor of class
     #[inline(always)]
     pub fn constructor<F>(func: F) -> ErrorConstructor<E, F> {
         ErrorConstructor(func, PhantomData)
-    }
-
-    /// Register the error class
-    pub fn register(ctx: Ctx<'js>) -> Result<()> {
-        let rt = unsafe { qjs::JS_GetRuntime(ctx.ctx) };
-        let class_id = unsafe { E::class_id() };
-        class_id.init();
-        let class_id = Self::id();
-        let class_name = CString::new(E::CLASS_NAME)?;
-        if 0 == unsafe { qjs::JS_IsRegisteredClass(rt, class_id) } {
-            let class_def = qjs::JSClassDef {
-                class_name: class_name.as_ptr(),
-                finalizer: None,
-                gc_mark: None,
-                call: None,
-                exotic: ptr::null_mut(),
-            };
-
-            if 0 != unsafe { qjs::JS_NewClass(rt, class_id, &class_def) } {
-                return Err(Error::Unknown);
-            }
-
-            if E::HAS_PROTO {
-                let error_proto = ctx.eval::<Object, _>("new Error()")?.get_prototype()?;
-                let proto = unsafe { Object::from_js_value(ctx, handle_exception(
-                    ctx, 
-                    qjs::JS_NewObjectProto(ctx.ctx, error_proto.as_js_value() as _)
-                )?)};
-                E::init_proto(ctx, &proto)?;
-                unsafe { qjs::JS_SetClassProto(ctx.ctx, class_id, proto.0.into_js_value()) };
-            }
-        }
-        Ok(())
-    }
-
-     /// Get the own prototype object of a class
-     pub fn prototype(ctx: Ctx<'js>) -> Result<Object<'js>> {
-        Ok(Object(unsafe {
-            let class_id = Self::id();
-            let proto = qjs::JS_GetClassProto(ctx.ctx, class_id);
-            let proto = Value::from_js_value(ctx, proto);
-            let type_ = proto.type_of();
-            if type_ == Type::Object {
-                proto
-            } else {
-                return Err(Error::new_from_js_message(
-                    type_.as_str(),
-                    "prototype",
-                    "Tried to get the prototype of class without prototype",
-                ));
-            }
-        }))
     }
 }
 

@@ -69,8 +69,8 @@ pub enum Error {
     #[cfg(feature = "quickjs-libc")]
     CustomError { 
         name: StdString,
+        class_name: StdString,
         message: StdString,
-        id: qjs::JSClassID,
     },
     #[cfg(feature = "quickjs-libc")]
     TypeError { message: StdString },
@@ -219,9 +219,10 @@ impl Error {
     }
     #[cfg(feature = "quickjs-libc")]
     pub fn new_custom_error<'js, E>(name: StdString, message: StdString) -> Self 
-    where E: crate::ErrorDef
+    where
+        E: crate::ErrorDef
     {
-        Self::CustomError { name, message, id: unsafe { E::class_id().get() } }
+        Self::CustomError { name, class_name: String::from(E::CLASS_NAME), message }
     }
     #[cfg(feature = "quickjs-libc")]
     pub fn new_type_error(message: StdString) -> Self {
@@ -469,13 +470,6 @@ impl<'js> FromJs<'js> for Error {
                 line: obj.get("lineNumber").unwrap_or(-1),
                 stack: obj.get("stack").unwrap_or_else(|_| "".into()),
             })
-        } else if obj.instance_of_error() {
-            let id = obj.get_class_id();
-            Ok(Error::CustomError { 
-                name: obj.get("name").unwrap_or_else(|_| "".into()), 
-                message: obj.get("message").unwrap_or_else(|_| "".into()), 
-                id,
-            })
         } else {
             Err(Error::new_from_js("object", "error"))
         }
@@ -513,16 +507,12 @@ impl<'js> IntoJs<'js> for &Error {
                 Ok(value.0)
             }
             #[cfg(feature = "quickjs-libc")]
-            CustomError { name, message, id } => {
-                let value = unsafe {
-                    Object::from_js_value(ctx, handle_exception(
-                        ctx,
-                        qjs::JS_NewObjectClass(ctx.ctx, id.clone() as _),
-                    )?)
-                };
-                value.set("name", name)?;
-                value.set("message", message)?;
-                Ok(value.0)
+            CustomError { name: _, class_name, message } => {
+                let obj = ctx.eval::<Object, _>(format!("new {class_name}()"))?;
+                if !message.is_empty() {
+                    obj.set("message", message)?;
+                }
+                Ok(obj.0)
             }
             #[cfg(feature = "quickjs-libc")]
             InvalidString(_) | Utf8(_) | FromJs { .. } | IntoJs { .. } | NumArgs { .. } | TypeError { .. } => {

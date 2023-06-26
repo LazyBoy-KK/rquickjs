@@ -8,7 +8,7 @@ use std::ops::Range;
 use crate::{Class, ClassDef, Constructor};
 #[cfg(feature = "classes")]
 #[cfg(feature = "quickjs-libc")]
-use crate::{ErrorDef, ErrorClass, ErrorConstructor};
+use crate::{ErrorDef, ErrorConstructor};
 
 #[cfg(feature = "futures")]
 use crate::{Async, Promised};
@@ -379,14 +379,10 @@ where
             .map(|func| func.get_prototype())
             // called as a function
             .unwrap_or_else(|| {
-                if E::HAS_PROTO {
-                    ErrorClass::<E>::prototype(ctx)
-                } else {
-                    // Fallback to the a ordinary object as prototype.
-                    // more correct would be the %Object.prototype% as defined by ecma but we dont have
-                    // access to fundamental objects.
-                    crate::Object::new(ctx)
-                }
+                // Fallback to the a ordinary object as prototype.
+                // more correct would be the %Object.prototype% as defined by ecma but we dont have
+                // access to fundamental objects.
+                crate::Object::new(ctx)
             })?;
         // call constructor
         let res = self.0.call(input)?;
@@ -399,13 +395,10 @@ where
 
     fn post<'js_>(ctx: Ctx<'js_>, func: &Function<'js_>) -> Result<()> {
         func.set_constructor(true);
-        let proto = if E::HAS_PROTO {
-            ErrorClass::<E>::prototype(ctx)?
-        } else {
-            // Fallback to the a ordinary object as prototype.
-            // more correct would be the %Object.prototype% as defined by ecma but we dont have
-            // access to fundamental objects.
-            crate::Object::new(ctx)?
+        let proto = unsafe {
+            let proto = ctx.eval::<crate::Object, _>("new Error()")?.get_prototype()?;
+            let proto = crate::qjs::JS_NewObjectProto(ctx.ctx, proto.value);
+            crate::Object::from_js_value(ctx, proto)
         };
         func.set_prototype(&proto);
         Ok(())

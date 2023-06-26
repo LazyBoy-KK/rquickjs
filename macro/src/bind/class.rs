@@ -71,15 +71,7 @@ impl BindClass {
 
         let mut extras = quote! {};
 
-        if self.error_subtype {
-            extras.extend(quote! {
-                const HAS_PROTO: bool = true;
-    
-                fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
-                    Ok(())
-                }
-            });
-        } else {
+        if !self.error_subtype {
             extras.extend(quote! {
                 const HAS_PROTO: bool = true;
     
@@ -154,17 +146,10 @@ impl BindClass {
             quote! {
                 impl #lib_crate::ErrorDef for #src {
                     const CLASS_NAME: &'static str = #class_name;
-                    
-                    unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
-                        static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
-                        &mut CLASS_ID
-                    }
     
                     #extras
                 }
-    
-                #lib_crate::ErrorClass::<#src>::register(_ctx)?;
-    
+        
                 #ctor_func
             }
         } else {

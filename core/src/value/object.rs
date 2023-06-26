@@ -67,6 +67,16 @@ impl<'js> Object<'js> {
         })
     }
 
+    #[cfg(feature = "quickjs-libc")]
+    /// Create a new javascript error
+    pub fn new_error(ctx: Ctx<'js>) -> Result<Self> {
+        Ok(unsafe {
+            let val = qjs::JS_NewError(ctx.ctx);
+            let val = handle_exception(ctx, val)?;
+            Object::from_js_value(ctx, val)
+        })
+    }
+
     /// Initialize an object using `ObjectDef`
     pub fn init_def<T>(&self) -> Result<()>
     where

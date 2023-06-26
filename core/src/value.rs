@@ -337,18 +337,6 @@ impl<'js> Value<'js> {
         0 != unsafe { qjs::JS_IsError(self.ctx.ctx, self.value) }
     }
 
-    #[cfg(feature = "quickjs-libc")]
-    #[inline]
-    pub fn instance_of_error(&self) -> bool {
-        0 != unsafe { qjs::JS_InstanceOfError(self.ctx.ctx, self.value) }
-    }
-
-    #[cfg(feature = "quickjs-libc")]
-    #[inline]
-    pub(crate) fn get_class_id(&self) -> qjs::JSClassID {
-        unsafe { qjs::JS_GetClassIdFromValue(self.ctx.ctx, self.value) }
-    }
-
     /// Check if the value is undefined
     #[inline]
     pub fn is_undefined(&self) -> bool {
