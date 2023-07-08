@@ -107,6 +107,17 @@ pub use loader::{
 #[cfg(feature = "dyn-load")]
 pub use loader::NativeLoader;
 
+#[cfg(feature = "quickjs-libc")]
+pub const JS_GC_UNKNOWN: u32 = qjs::JS_GC_UNKNOWN;
+#[cfg(feature = "quickjs-libc")]
+pub const JS_GC_DECREF: u32 = qjs::JS_GC_DECREF;
+#[cfg(feature = "quickjs-libc")]
+pub const JS_GC_INCREF: u32 = qjs::JS_GC_INCREF;
+#[cfg(feature = "quickjs-libc")]
+pub fn get_js_gc_phase() -> u32 {
+    unsafe { qjs::JS_GetNowGCPhaseRust() }
+}
+
 #[cfg(test)]
 pub(crate) fn test_with<F, R>(func: F) -> R
 where
