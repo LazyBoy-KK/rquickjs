@@ -14,6 +14,9 @@ use flume::{unbounded, Sender, Receiver};
 #[cfg(feature = "quickjs-libc")]
 use flume::bounded;
 
+#[cfg(feature = "quickjs-libc")]
+use futures_lite::FutureExt;
+
 #[cfg(not(feature = "quickjs-libc"))]
 use std::{task::Waker, pin::Pin};
 
@@ -29,6 +32,7 @@ use std::{
 use std::{
     sync::{Arc, atomic::AtomicI32},
     cell::UnsafeCell,
+    panic::AssertUnwindSafe,
 };
 
 #[cfg(not(feature = "quickjs-libc"))]
@@ -373,9 +377,12 @@ impl ThreadTaskSpawner {
         let total = self.total.clone();
         let (runnable, task) = async_task::spawn(
             async move {
-                let output = future.await;
+                let output = AssertUnwindSafe(future).catch_unwind().await;
                 total.fetch_sub(1, Ordering::SeqCst);
-                output
+                match output {
+                    Ok(output) => output,
+                    Err(err) => std::panic::resume_unwind(err),
+                }
             }, self.rust_tasks_schedule()
         );
         runnable.schedule();
@@ -390,9 +397,12 @@ impl ThreadTaskSpawner {
         let total = self.total.clone();
         let (runnable, task) = async_task::spawn_local(
             async move {
-                let output = future.await;
+                let output = AssertUnwindSafe(future).catch_unwind().await;
                 total.fetch_sub(1, Ordering::SeqCst);
-                output
+                match output {
+                    Ok(output) => output,
+                    Err(err) => std::panic::resume_unwind(err),
+                }
             }, self.js_tasks_schedule()
         );
         runnable.schedule();
@@ -408,9 +418,12 @@ impl ThreadTaskSpawner {
         let total = self.total.clone();
         let (runnable, task) = async_task::spawn(
             async move {
-                let output = future.await;
+                let output = AssertUnwindSafe(future).catch_unwind().await;
                 total.fetch_sub(1, Ordering::SeqCst);
-                output
+                match output {
+                    Ok(output) => output,
+                    Err(err) => std::panic::resume_unwind(err),
+                }
             }, self.import_js_task_schehdule()
         );
         runnable.schedule();
