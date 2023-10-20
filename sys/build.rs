@@ -169,6 +169,7 @@ where
         .opaque_type("FILE")
         .blocklist_type("FILE")
         .blocklist_function("JS_DumpMemoryUsage")
+        .size_t_is_usize(false)
         .generate()
         .expect("Unable to generate bindings");
 
