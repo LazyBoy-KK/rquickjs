@@ -67,7 +67,7 @@ pub enum Error {
         message: Option<StdString>,
     },
     #[cfg(feature = "quickjs-libc")]
-    CustomError { 
+    CustomError {
         name: StdString,
         class_name: StdString,
         message: StdString,
@@ -218,11 +218,15 @@ impl Error {
         matches!(self, Self::NumArgs { .. })
     }
     #[cfg(feature = "quickjs-libc")]
-    pub fn new_custom_error<'js, E>(name: StdString, message: StdString) -> Self 
+    pub fn new_custom_error<'js, E>(name: StdString, message: StdString) -> Self
     where
-        E: crate::ErrorDef
+        E: crate::ErrorDef,
     {
-        Self::CustomError { name, class_name: String::from(E::CLASS_NAME), message }
+        Self::CustomError {
+            name,
+            class_name: String::from(E::CLASS_NAME),
+            message,
+        }
     }
     #[cfg(feature = "quickjs-libc")]
     pub fn new_type_error(message: StdString) -> Self {
@@ -507,7 +511,11 @@ impl<'js> IntoJs<'js> for &Error {
                 Ok(value.0)
             }
             #[cfg(feature = "quickjs-libc")]
-            CustomError { name: _, class_name, message } => {
+            CustomError {
+                name: _,
+                class_name,
+                message,
+            } => {
                 let obj = ctx.eval::<Object, _>(format!("new {class_name}()"))?;
                 if !message.is_empty() {
                     obj.set("message", message)?;
@@ -515,7 +523,12 @@ impl<'js> IntoJs<'js> for &Error {
                 Ok(obj.0)
             }
             #[cfg(feature = "quickjs-libc")]
-            InvalidString(_) | Utf8(_) | FromJs { .. } | IntoJs { .. } | NumArgs { .. } | TypeError { .. } => {
+            InvalidString(_)
+            | Utf8(_)
+            | FromJs { .. }
+            | IntoJs { .. }
+            | NumArgs { .. }
+            | TypeError { .. } => {
                 let message = format!("{self}").to_string();
                 let obj = ctx.eval::<Object, _>("new TypeError()")?;
                 if !message.is_empty() {

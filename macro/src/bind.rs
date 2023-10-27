@@ -451,15 +451,14 @@ impl Binder {
     }
 
     fn with_item<T, F>(
-        &mut self, 
-        ident: &Ident, 
-        name: &str, 
-        writable: bool, 
+        &mut self,
+        ident: &Ident,
+        name: &str,
+        writable: bool,
         enumerable: bool,
         configurable: bool,
-        func: F
-    )
-    where
+        func: F,
+    ) where
         T: From<Top> + Default + TryFrom<BindItem, Error = BindItem> + PropInit,
         Top: From<T>,
         BindItem: From<T>,

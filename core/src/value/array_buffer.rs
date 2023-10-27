@@ -3,8 +3,8 @@ use std::{
     mem::{size_of, ManuallyDrop, MaybeUninit},
     ops::Deref,
     os::raw::c_void,
-    sync::Arc,
     slice,
+    sync::Arc,
 };
 
 /// Rust representation of a javascript object of class ArrayBuffer.
@@ -47,12 +47,11 @@ impl<'js> ArrayBuffer<'js> {
     }
 
     pub unsafe fn new_shared<T>(
-        ctx: Ctx<'js>, 
+        ctx: Ctx<'js>,
         ptr: *const u8,
         len: usize,
         opaque: Arc<T>,
     ) -> Result<Self> {
-
         unsafe extern "C" fn mem_dup<T>(opaque: *mut c_void) -> *mut c_void {
             let opaque = Box::from_raw(opaque as *mut Arc<T>);
             let new_opaque = opaque.clone();
@@ -60,7 +59,7 @@ impl<'js> ArrayBuffer<'js> {
             Box::leak(new_opaque) as *mut Arc<T> as _
         }
 
-        unsafe extern "C" fn mem_free<T>(opaque: *mut c_void){
+        unsafe extern "C" fn mem_free<T>(opaque: *mut c_void) {
             let _opaque = Box::from_raw(opaque as *mut Arc<T>);
         }
 
@@ -68,10 +67,10 @@ impl<'js> ArrayBuffer<'js> {
 
         let obj = Object(unsafe {
             let val = qjs::JS_NewSharedArrayBufferExotic(
-                ctx.ctx, 
-                ptr as _, 
-                len as _, 
-                None, 
+                ctx.ctx,
+                ptr as _,
+                len as _,
+                None,
                 Some(mem_dup::<T>),
                 Some(mem_free::<T>),
                 opaque_ptr as _,

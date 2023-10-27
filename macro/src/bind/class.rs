@@ -74,7 +74,7 @@ impl BindClass {
         if !self.error_subtype {
             extras.extend(quote! {
                 const HAS_PROTO: bool = true;
-    
+
                 fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
                     let to_string_tag = unsafe { #lib_crate::Atom::from_atom_val(ctx, #lib_crate::qjs::JS_ATOM_Symbol_toStringTag) };
                     #exports_var.prop(to_string_tag, #lib_crate::Property::from(Self::CLASS_NAME).configurable())?;
@@ -146,29 +146,29 @@ impl BindClass {
             quote! {
                 impl #lib_crate::ErrorDef for #src {
                     const CLASS_NAME: &'static str = #class_name;
-    
+
                     #extras
                 }
-        
+
                 #ctor_func
             }
         } else {
             quote! {
                 impl #lib_crate::ClassDef for #src {
                     const CLASS_NAME: &'static str = #class_name;
-                    
+
                     unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
                         static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
                         &mut CLASS_ID
                     }
-                        
+
                     #extras
                 }
-    
+
                 #converts
-    
+
                 #lib_crate::Class::<#src>::register(_ctx)?;
-    
+
                 #ctor_func
             }
         }
@@ -176,7 +176,15 @@ impl BindClass {
 }
 
 impl Binder {
-    fn update_class(&mut self, ident: &Ident, name: &str, class_name: Option<String>, has_refs: bool, cloneable: bool, error_subtype: bool) {
+    fn update_class(
+        &mut self,
+        ident: &Ident,
+        name: &str,
+        class_name: Option<String>,
+        has_refs: bool,
+        cloneable: bool,
+        error_subtype: bool,
+    ) {
         let src = self.top_src().clone();
         let class = self.top_class().unwrap();
         class.set_src(ident, name, src);
@@ -229,24 +237,38 @@ impl Binder {
         let class_name = class_name.unwrap_or_else(|| name.clone());
 
         self.with_dir(ident, |this| {
-            this.with_item::<BindClass, _>(ident, &name, writable, enumerable, configurable, |this| {
-                this.update_class(ident, &name, Some(class_name), has_refs, cloneable, error_subtype);
+            this.with_item::<BindClass, _>(
+                ident,
+                &name,
+                writable,
+                enumerable,
+                configurable,
+                |this| {
+                    this.update_class(
+                        ident,
+                        &name,
+                        Some(class_name),
+                        has_refs,
+                        cloneable,
+                        error_subtype,
+                    );
 
-                use Fields::*;
-                match fields {
-                    Named(fields) => {
-                        for field in fields.named.iter_mut() {
-                            this.bind_field(None, field);
+                    use Fields::*;
+                    match fields {
+                        Named(fields) => {
+                            for field in fields.named.iter_mut() {
+                                this.bind_field(None, field);
+                            }
                         }
-                    }
-                    Unnamed(fields) => {
-                        for (index, field) in fields.unnamed.iter_mut().enumerate() {
-                            this.bind_field(Some(index), field)
+                        Unnamed(fields) => {
+                            for (index, field) in fields.unnamed.iter_mut().enumerate() {
+                                this.bind_field(Some(index), field)
+                            }
                         }
+                        _ => (),
                     }
-                    _ => (),
-                }
-            });
+                },
+            );
         });
     }
 
@@ -285,11 +307,25 @@ impl Binder {
         let class_name = class_name.unwrap_or_else(|| name.clone());
 
         self.with_dir(ident, |this| {
-            this.with_item::<BindClass, _>(ident, &name, writable, enumerable, configurable, |this| {
-                this.update_class(ident, &name, Some(class_name), has_refs, cloneable, error_subtype);
+            this.with_item::<BindClass, _>(
+                ident,
+                &name,
+                writable,
+                enumerable,
+                configurable,
+                |this| {
+                    this.update_class(
+                        ident,
+                        &name,
+                        Some(class_name),
+                        has_refs,
+                        cloneable,
+                        error_subtype,
+                    );
 
-                // TODO support for variant fields
-            });
+                    // TODO support for variant fields
+                },
+            );
         });
     }
 

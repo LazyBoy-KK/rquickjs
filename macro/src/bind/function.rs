@@ -69,20 +69,20 @@ impl BindFn {
         };
         let have_length = self.length.is_some();
         let mut prop = if self.error_ctor {
-            quote!{
+            quote! {
                 #lib_crate::Property::from(
                     #lib_crate::Func::new_error(#func_name, #bindings)
                 )
             }
         } else if have_length {
             let length = self.length.unwrap();
-            quote!{
+            quote! {
                 #lib_crate::Property::from(
                     #lib_crate::Func::new_with_len(#func_name, #bindings, #length)
                 )
             }
         } else {
-            quote!{
+            quote! {
                 #lib_crate::Property::from(
                     #lib_crate::Func::new(#func_name, #bindings)
                 )

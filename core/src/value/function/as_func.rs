@@ -8,7 +8,7 @@ use std::ops::Range;
 use crate::{Class, ClassDef, Constructor};
 #[cfg(feature = "classes")]
 #[cfg(feature = "quickjs-libc")]
-use crate::{ErrorDef, ErrorConstructor};
+use crate::{ErrorConstructor, ErrorDef};
 
 #[cfg(feature = "futures")]
 use crate::{Async, Promised};
@@ -396,7 +396,9 @@ where
     fn post<'js_>(ctx: Ctx<'js_>, func: &Function<'js_>) -> Result<()> {
         func.set_constructor(true);
         let proto = unsafe {
-            let proto = ctx.eval::<crate::Object, _>("new Error()")?.get_prototype()?;
+            let proto = ctx
+                .eval::<crate::Object, _>("new Error()")?
+                .get_prototype()?;
             let proto = crate::qjs::JS_NewObjectProto(ctx.ctx, proto.value);
             crate::Object::from_js_value(ctx, proto)
         };
@@ -404,8 +406,6 @@ where
         Ok(())
     }
 }
-
-
 
 macro_rules! overloaded_impls {
     ($($(#[$meta:meta])* $func:ident<$func_args:ident, $func_res:ident> $($funcs:ident <$funcs_args:ident, $funcs_res:ident>)*,)*) => {

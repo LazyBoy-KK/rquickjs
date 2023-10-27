@@ -35,6 +35,9 @@ pub use result::{Error, Result};
 mod safe_ref;
 pub(crate) use safe_ref::*;
 mod runtime;
+#[cfg(feature = "quickjs-libc")]
+#[cfg(feature = "futures")]
+pub use runtime::AsyncCtx;
 #[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "async-std")]
 pub use runtime::AsyncStd;
@@ -47,9 +50,6 @@ pub use runtime::Tokio;
 #[cfg(feature = "futures")]
 pub use runtime::{Executor, ExecutorSpawner, Idle};
 pub use runtime::{MemoryUsage, Runtime};
-#[cfg(feature = "quickjs-libc")]
-#[cfg(feature = "futures")]
-pub use runtime::AsyncCtx;
 mod context;
 pub use context::{intrinsic, Context, ContextBuilder, Ctx, EvalOptions, Intrinsic, MultiWith};
 mod value;
@@ -74,7 +74,7 @@ mod class;
 pub use class::{Class, ClassDef, Constructor, HasRefs, RefsMarker, WithProto};
 #[cfg(feature = "classes")]
 #[cfg(feature = "quickjs-libc")]
-pub use class::{ErrorDef, ErrorConstructor, ErrorClass};
+pub use class::{ErrorClass, ErrorConstructor, ErrorDef};
 
 #[cfg(feature = "properties")]
 mod property;

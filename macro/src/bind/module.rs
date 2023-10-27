@@ -37,7 +37,7 @@ impl BindMod {
         let lib_crate = &cfg.lib_crate;
         let exports_var = &cfg.exports_var;
         let bindings = self.object_init(name, cfg);
-        let mut prop = quote!{
+        let mut prop = quote! {
             #lib_crate::Property::from({
                 let #exports_var = #lib_crate::Object::new(_ctx)?;
                 #bindings
@@ -45,13 +45,13 @@ impl BindMod {
             })
         };
         if self.writable {
-            prop.extend(quote!{ .writable() });
+            prop.extend(quote! { .writable() });
         }
         if self.enumerable {
-            prop.extend(quote!{ .enumerable() });
+            prop.extend(quote! { .enumerable() });
         }
         if self.configurable {
-            prop.extend(quote!{ .configurable() });
+            prop.extend(quote! { .configurable() });
         }
         quote! {
             #exports_var.prop(#name, #prop)?;
@@ -104,14 +104,14 @@ impl Binder {
                 this.bind_items(items);
             } else {
                 this.with_item::<BindMod, _>(
-                    ident, 
-                    &name, 
-                    writable, 
-                    enumerable, 
-                    configurable, 
+                    ident,
+                    &name,
+                    writable,
+                    enumerable,
+                    configurable,
                     |this| {
                         this.bind_items(items);
-                    }
+                    },
                 );
             }
         });

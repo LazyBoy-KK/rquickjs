@@ -239,11 +239,7 @@ impl<'js> Object<'js> {
     /// Set an object prototype to null
     pub fn clear_prototype(&self) -> Result<()> {
         unsafe {
-            if 1 != qjs::JS_SetPrototype(
-                self.0.ctx.ctx,
-                self.0.as_js_value(),
-                qjs::JS_NULL,
-            ) {
+            if 1 != qjs::JS_SetPrototype(self.0.ctx.ctx, self.0.as_js_value(), qjs::JS_NULL) {
                 Err(get_exception(self.0.ctx))
             } else {
                 Ok(())
@@ -253,10 +249,7 @@ impl<'js> Object<'js> {
 
     pub fn prevent_extensions(&self) -> Result<()> {
         unsafe {
-            if 1 != qjs::JS_PreventExtensions(
-                self.0.ctx.ctx,
-                self.0.as_js_value(),
-            ) {
+            if 1 != qjs::JS_PreventExtensions(self.0.ctx.ctx, self.0.as_js_value()) {
                 Err(get_exception(self.0.ctx))
             } else {
                 Ok(())

@@ -25,7 +25,7 @@ use fxhash::FxHashSet as HashSet;
 pub use qjs::JSMemoryUsage as MemoryUsage;
 
 #[cfg(feature = "allocator")]
-use crate::{allocator::AllocatorHolder};
+use crate::allocator::AllocatorHolder;
 
 #[cfg(feature = "loader")]
 use crate::{loader::LoaderHolder, Loader, Resolver};

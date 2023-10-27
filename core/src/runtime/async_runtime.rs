@@ -1,11 +1,11 @@
+#[cfg(feature = "quickjs-libc")]
+use super::AsyncCtx;
 #[cfg(not(feature = "quickjs-libc"))]
 use super::{Executor, Idle, Spawner};
 use super::{Inner, Opaque};
-#[cfg(feature = "quickjs-libc")]
-use super::AsyncCtx;
-use crate::Runtime;
 #[cfg(not(feature = "quickjs-libc"))]
 use crate::ParallelSend;
+use crate::Runtime;
 #[cfg(not(feature = "quickjs-libc"))]
 use std::future::Future;
 

@@ -9,7 +9,7 @@ use flume::r#async::RecvStream;
 #[cfg(not(feature = "quickjs-libc"))]
 use futures_lite::Stream;
 
-use flume::{unbounded, Sender, Receiver};
+use flume::{unbounded, Receiver, Sender};
 
 #[cfg(feature = "quickjs-libc")]
 use flume::bounded;
@@ -18,21 +18,21 @@ use flume::bounded;
 use futures_lite::FutureExt;
 
 #[cfg(not(feature = "quickjs-libc"))]
-use std::{task::Waker, pin::Pin};
+use std::{pin::Pin, task::Waker};
 
 #[cfg(not(feature = "quickjs-libc"))]
 use pin_project_lite::pin_project;
 use std::{
     future::Future,
-    sync::{atomic::Ordering, atomic::AtomicBool},
+    sync::{atomic::AtomicBool, atomic::Ordering},
     task::{Context, Poll},
 };
 
 #[cfg(feature = "quickjs-libc")]
 use std::{
-    sync::{Arc, atomic::AtomicI32},
     cell::UnsafeCell,
     panic::AssertUnwindSafe,
+    sync::{atomic::AtomicI32, Arc},
 };
 
 #[cfg(not(feature = "quickjs-libc"))]
@@ -201,7 +201,9 @@ impl ThreadRustTaskExecutor {
                 break false;
             }
             match self.rust_tasks.try_recv() {
-                Ok(task) => { task.run(); }
+                Ok(task) => {
+                    task.run();
+                }
                 Err(flume::TryRecvError::Empty) => {
                     if !is_spawning {
                         break true;
@@ -232,9 +234,9 @@ impl AsyncCtx {
         let total = Arc::new(AtomicI32::new(0));
         let closed = Arc::new(AtomicBool::new(true));
 
-        let spawner = ThreadTaskSpawner { 
-            js_tasks: js_task_tx, 
-            rust_tasks: rust_task_tx, 
+        let spawner = ThreadTaskSpawner {
+            js_tasks: js_task_tx,
+            rust_tasks: rust_task_tx,
             import_js_task: import_js_task_tx,
             total: total.clone(),
             handle: Arc::new(UnsafeCell::new(None)),
@@ -252,7 +254,7 @@ impl AsyncCtx {
         });
 
         Self {
-            rust_exec, 
+            rust_exec,
             spawner,
             js_exec,
         }
@@ -293,9 +295,9 @@ impl AsyncCtx {
     //     }
     // }
 
-    pub fn block_on_js<F>(&self, future: F) -> F::Output 
+    pub fn block_on_js<F>(&self, future: F) -> F::Output
     where
-        F: Future + 'static
+        F: Future + 'static,
     {
         futures_lite::pin!(future);
         let waker = waker_fn::waker_fn(|| {});
@@ -328,7 +330,10 @@ impl AsyncCtx {
         self.spawner.spawn_js_task(future)
     }
 
-    pub fn spawn_js_cross_thread_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    pub fn spawn_js_cross_thread_task<F>(
+        &self,
+        future: F,
+    ) -> async_task::Task<<F as Future>::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -383,7 +388,8 @@ impl ThreadTaskSpawner {
                     Ok(output) => output,
                     Err(err) => std::panic::resume_unwind(err),
                 }
-            }, self.rust_tasks_schedule()
+            },
+            self.rust_tasks_schedule(),
         );
         runnable.schedule();
         task
@@ -403,13 +409,17 @@ impl ThreadTaskSpawner {
                     Ok(output) => output,
                     Err(err) => std::panic::resume_unwind(err),
                 }
-            }, self.js_tasks_schedule()
+            },
+            self.js_tasks_schedule(),
         );
         runnable.schedule();
         task
     }
 
-    pub fn spawn_js_cross_thread_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    pub fn spawn_js_cross_thread_task<F>(
+        &self,
+        future: F,
+    ) -> async_task::Task<<F as Future>::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -424,7 +434,8 @@ impl ThreadTaskSpawner {
                     Ok(output) => output,
                     Err(err) => std::panic::resume_unwind(err),
                 }
-            }, self.import_js_task_schehdule()
+            },
+            self.import_js_task_schehdule(),
         );
         runnable.schedule();
         task
@@ -470,7 +481,7 @@ impl ThreadTaskSpawner {
     }
 }
 
-/// Thread handle in Spawner will be changed only once when creating 
+/// Thread handle in Spawner will be changed only once when creating
 /// rust thread and will not be dropped until freeing quickjs runtime
 #[cfg(feature = "quickjs-libc")]
 unsafe impl Send for ThreadTaskSpawner {}

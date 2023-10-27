@@ -43,7 +43,11 @@ impl<'js> JsFunction<'js> {
 
     pub unsafe fn into_error_js_value(self, ctx: Ctx<'_>) -> qjs::JSValue {
         let obj = if let Ok(error_proto) = ctx.eval::<Object, _>("Error") {
-            qjs::JS_NewObjectProtoClass(ctx.ctx, error_proto.as_js_value() as _, Self::class_id() as _)
+            qjs::JS_NewObjectProtoClass(
+                ctx.ctx,
+                error_proto.as_js_value() as _,
+                Self::class_id() as _,
+            )
         } else {
             qjs::JS_NewObjectClass(ctx.ctx, Self::class_id() as _)
         };
@@ -102,7 +106,7 @@ impl<'js> JsFunction<'js> {
             let message = std::ffi::CString::from_vec_unchecked(error_str);
             return qjs::JS_ThrowTypeError(ctx.ctx, message.as_ptr());
         }
-        
+
         let opaque = &*(qjs::JS_GetOpaque2(ctx.ctx, func, Self::class_id()) as *mut Self);
 
         handle_panic(
@@ -122,7 +126,7 @@ impl<'js> JsFunction<'js> {
 
 #[cfg(feature = "quickjs-libc")]
 pub struct JsFunctionWithClass<'js, C> {
-    func: BoxedFunc<'js>, 
+    func: BoxedFunc<'js>,
     class: *mut C,
 }
 
@@ -136,15 +140,16 @@ impl<'js, C> Deref for JsFunctionWithClass<'js, C> {
 }
 
 #[cfg(feature = "quickjs-libc")]
-impl<'js, C> JsFunctionWithClass<'js, C> 
-where C: ClassDef
+impl<'js, C> JsFunctionWithClass<'js, C>
+where
+    C: ClassDef,
 {
     pub fn new<F>(func: F, class: C) -> Self
     where
         F: Fn(&Input<'js>) -> Result<Value<'js>> + 'static,
     {
         Self {
-            func: Box::new(func), 
+            func: Box::new(func),
             class: Box::into_raw(Box::new(class)),
         }
     }
@@ -162,13 +167,17 @@ where C: ClassDef
     pub unsafe fn get_opaque(obj: qjs::JSValueConst) -> Result<&'js C> {
         let ptr = qjs::JS_GetOpaque(obj, Self::class_id()) as *const Self;
         if ptr.is_null() {
-            return Err(Error::new_type_error(format!("Not a {} object", C::CLASS_NAME)));
+            return Err(Error::new_type_error(format!(
+                "Not a {} object",
+                C::CLASS_NAME
+            )));
         }
         let opaque = &*ptr;
         if opaque.class.is_null() {
-            return Err(Error::new_type_error(
-                format!("Not a {} object", C::CLASS_NAME)
-            ));
+            return Err(Error::new_type_error(format!(
+                "Not a {} object",
+                C::CLASS_NAME
+            )));
         }
         Ok(&*opaque.class)
     }
@@ -226,7 +235,7 @@ where C: ClassDef
             let message = std::ffi::CString::from_vec_unchecked(error_str);
             return qjs::JS_ThrowTypeError(ctx.ctx, message.as_ptr());
         }
-        
+
         let opaque = &*(qjs::JS_GetOpaque2(ctx.ctx, func, Self::class_id()) as *mut Self);
 
         handle_panic(

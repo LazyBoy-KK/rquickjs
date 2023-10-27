@@ -208,7 +208,7 @@ impl<'js> Ctx<'js> {
     #[cfg(feature = "quickjs-libc")]
     #[cfg(feature = "futures")]
     pub fn spawn<F>(&self, future: F)
-    where 
+    where
         F: Future + 'static,
         F::Output: Send + 'static,
     {

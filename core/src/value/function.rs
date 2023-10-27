@@ -1,6 +1,6 @@
 use crate::{
     get_exception, handle_exception, qjs, Ctx, Error, FromJs, IntoAtom, IntoJs, Object,
-    ParallelSend, Result, Value, 
+    ParallelSend, Result, Value,
 };
 
 #[cfg(feature = "quickjs-libc")]
@@ -50,10 +50,8 @@ impl<'js> Function<'js> {
     {
         let custom_func = func.clone();
         unsafe { JsFunctionWithClass::<F>::register(ctx.ctx) };
-        let func = JsFunctionWithClass::<F>::new(
-            move |input: &Input<'js>| func.call(input),
-            custom_func,
-        );
+        let func =
+            JsFunctionWithClass::<F>::new(move |input: &Input<'js>| func.call(input), custom_func);
         let func = unsafe {
             let func = func.into_js_value(ctx);
             Self::from_js_value(ctx, func)
@@ -79,7 +77,8 @@ impl<'js> Function<'js> {
 
     #[cfg(feature = "quickjs-libc")]
     pub fn get_func_opaque<C, A, R>(&self) -> Result<&'js C>
-    where C: AsFunction<'js, A, R> + ClassDef
+    where
+        C: AsFunction<'js, A, R> + ClassDef,
     {
         unsafe { JsFunctionWithClass::<C>::get_opaque(self.as_js_value()) }
     }
@@ -246,9 +245,7 @@ impl<'js> Function<'js> {
 
     #[cfg(feature = "quickjs-libc")]
     pub fn is_async_function(&self) -> bool {
-        1 == unsafe {
-            qjs::JS_IsAsyncFunction(self.0.ctx.ctx, self.0.as_js_value())
-        }
+        1 == unsafe { qjs::JS_IsAsyncFunction(self.0.ctx.ctx, self.0.as_js_value()) }
     }
 
     /// Mark the function as a constructor
