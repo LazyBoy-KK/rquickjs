@@ -239,6 +239,8 @@ pub struct AttrData {
     pub enumerable: bool,
     /// cotr is configurable
     pub configurable: bool,
+    /// is func
+    pub is_func: bool,
 }
 
 impl Extend<Self> for AttrData {
@@ -273,6 +275,9 @@ impl Extend<Self> for AttrData {
             }
             if over.configurable {
                 self.configurable = true;
+            }
+            if over.is_func {
+                self.is_func = true;
             }
         }
     }

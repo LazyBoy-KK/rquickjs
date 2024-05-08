@@ -19,7 +19,7 @@ use ffi::JsFunction;
 pub use types::{Func, Method, MutFn, OnceFn, Opt, Rest, This};
 
 #[cfg(feature = "quickjs-libc")]
-use ffi::JsFunctionWithClass;
+pub use ffi::JsFunctionWithClass;
 
 #[cfg(feature = "futures")]
 pub use types::Async;
@@ -46,12 +46,9 @@ impl<'js> Function<'js> {
     #[cfg(feature = "quickjs-libc")]
     pub fn new_custom<F, A, R>(ctx: Ctx<'js>, func: F) -> Result<Self>
     where
-        F: AsFunction<'js, A, R> + ClassDef + ParallelSend + Clone + 'static,
+        F: AsFunction<'js, A, R> + ClassDef + ParallelSend + 'static,
     {
-        let custom_func = func.clone();
-        unsafe { JsFunctionWithClass::<F>::register(ctx.ctx) };
-        let func =
-            JsFunctionWithClass::<F>::new(move |input: &Input<'js>| func.call(input), custom_func);
+        let func = JsFunctionWithClass::<F, A, R>::new(func);
         let func = unsafe {
             let func = func.into_js_value(ctx);
             Self::from_js_value(ctx, func)
@@ -80,7 +77,7 @@ impl<'js> Function<'js> {
     where
         C: AsFunction<'js, A, R> + ClassDef,
     {
-        unsafe { JsFunctionWithClass::<C>::get_opaque(self.as_js_value()) }
+        unsafe { JsFunctionWithClass::<C, A, R>::get_opaque(self.as_js_value()) }
     }
 
     /// Set the `length` property
@@ -469,10 +466,6 @@ mod test {
             let c: Value = g.get("called").unwrap();
             assert_eq!(c.type_of(), Type::Bool);
         });
-    }
-
-    fn test() {
-        println!("test");
     }
 
     #[test]

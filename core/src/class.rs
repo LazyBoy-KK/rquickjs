@@ -130,6 +130,14 @@ pub trait ClassDef {
         Class::<Self>::try_ref(ctx, &value)
     }
 
+    fn from_js_ref_mut<'js>(ctx: Ctx<'js>, value: Value<'js>) -> Result<&'js mut Self> 
+    where
+        Self: Sized
+    {
+        let mut value = Object::from_js(ctx, value)?;
+        Class::<Self>::try_ref_mut(ctx, &mut value)
+    }
+
     /// Get an instance of class from JS object
     fn from_js_obj<'js>(ctx: Ctx<'js>, value: Value<'js>) -> Result<Self>
     where
@@ -294,6 +302,10 @@ where
     /// Get reference from object
     pub fn try_ref<'r>(ctx: Ctx<'js>, value: &Object<'js>) -> Result<&'r C> {
         Ok(unsafe { &*Self::try_ptr(ctx.ctx, value.0.as_js_value())? })
+    }
+
+    pub fn try_ref_mut<'r>(ctx: Ctx<'js>, value: &mut Object<'js>) -> Result<&'r mut C> {
+        Ok(unsafe { &mut *Self::try_ptr(ctx.ctx, value.0.as_js_value())? })
     }
 
     /// Get instance pointer from object

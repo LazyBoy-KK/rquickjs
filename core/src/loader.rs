@@ -28,7 +28,7 @@ pub use compile::Compile;
 mod bundle;
 #[cfg(feature = "phf")]
 pub use bundle::PhfBundleData;
-pub use bundle::{Bundle, HasByteCode, ScaBundleData};
+pub use bundle::{Bundle, HasByteCode};
 
 /// Module resolver interface
 #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "loader")))]

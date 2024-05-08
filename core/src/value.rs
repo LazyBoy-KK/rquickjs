@@ -13,6 +13,12 @@ mod array_buffer;
 #[cfg(feature = "array-buffer")]
 mod typed_array;
 
+#[cfg(feature = "quickjs-libc")]
+use std::sync::Arc;
+
+#[cfg(feature = "quickjs-libc")]
+use crate::Persistent;
+
 use crate::{qjs, Ctx, Error, Result};
 
 pub use module::{Created, Evaluated, Loaded, Module, ModuleDef, ModuleLoadFn, Native, Script};
@@ -27,6 +33,8 @@ pub use function::{
     AsArguments, AsFunction, CallInput, Func, Function, Input, InputAccessor, Method, MutFn,
     OnceFn, Opt, Rest, This,
 };
+#[cfg(feature = "quickjs-libc")]
+pub use function::JsFunctionWithClass;
 pub use object::{Filter, Object, ObjectDef};
 pub use string::String;
 pub use symbol::Symbol;
@@ -645,6 +653,50 @@ void_types! {
 
     /// The placeholder which treated as `null` value
     Null new_null;
+}
+
+#[cfg(feature = "quickjs-libc")]
+#[derive(Clone)]
+pub struct JSValueHandle(pub Arc<Persistent<Value<'static>>>);
+// js value wrapped by JSValueHandle will not be dropped in threads other than js runtime thread
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Send for JSValueHandle {}
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Sync for JSValueHandle {}
+
+#[cfg(feature = "quickjs-libc")]
+impl JSValueHandle {
+    pub fn new(value: Persistent<Value<'static>>) -> Self {
+        Self(Arc::new(value))
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+impl crate::HasRefs for JSValueHandle {
+    fn mark_refs(&self, marker: &crate::RefsMarker) {
+        self.0.mark_refs(marker);
+    }
+}
+
+// JSValue wrapper for cross-thread task
+// The wrapper will not be dropped or cloned in other thread
+#[cfg(feature = "quickjs-libc")]
+pub struct SendSyncJsValue(Persistent<Value<'static>>);
+
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Send for SendSyncJsValue {}
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Sync for SendSyncJsValue {}
+
+#[cfg(feature = "quickjs-libc")]
+impl SendSyncJsValue {
+    pub fn new<'js>(ctx: Ctx<'js>, value: Value<'js>) -> Self {
+        Self(Persistent::save(ctx, value))
+    }
+
+    pub fn into_inner(self, ctx: Ctx) -> Result<Value> {
+        self.0.restore(ctx)
+    }
 }
 
 #[cfg(test)]

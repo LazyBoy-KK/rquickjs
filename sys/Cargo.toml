@@ -15,7 +15,7 @@ cc = "1"
 
 [build-dependencies.bindgen-rs]
 package = "bindgen"
-version = "0.66"
+version = "0.69"
 optional = true
 
 [build-dependencies.pretty_env_logger]
@@ -27,6 +27,7 @@ exports = []
 bindgen = ["bindgen-rs"]
 # Enable quickjs-libc compatable code path
 quickjs-libc = []
+quickjs-libc-test = []
 
 # Debug logging
 logging = ["pretty_env_logger"]

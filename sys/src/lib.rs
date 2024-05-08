@@ -16,6 +16,7 @@ include!(concat!("bindings/", bindings_env!("TARGET"), ".rs"));
 #[cfg(target_pointer_width = "64")]
 include!("inlines/ptr_64.rs");
 
+// It seems that aarch64-linux-android use 32-bit pointers
 #[cfg(target_pointer_width = "32")]
 include!("inlines/ptr_32_nan_boxing.rs");
 

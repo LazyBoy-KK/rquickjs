@@ -26,6 +26,8 @@ pub struct BindClass {
     pub enumerable: bool,
     /// ctor configurable
     pub configurable: bool,
+    /// is func
+    pub is_func: bool,
 }
 
 impl BindClass {
@@ -117,6 +119,12 @@ impl BindClass {
                     <#src as #lib_crate::ClassDef>::from_js_ref(ctx, value)
                 }
             }
+
+            impl<'js> #lib_crate::FromJs<'js> for &'js mut #src {
+                fn from_js(ctx: #lib_crate::Ctx<'js>, value: #lib_crate::Value<'js>) -> #lib_crate::Result<Self> {
+                    <#src as #lib_crate::ClassDef>::from_js_ref_mut(ctx, value)
+                }
+            }
         };
 
         if self.cloneable {
@@ -152,6 +160,25 @@ impl BindClass {
 
                 #ctor_func
             }
+        } else if self.is_func {
+            quote! {
+                impl #lib_crate::ClassDef for #src {
+                    const CLASS_NAME: &'static str = #class_name;
+
+                    unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
+                        static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
+                        &mut CLASS_ID
+                    }
+
+                    #extras
+                }
+
+                #converts
+
+                #lib_crate::JsFunctionWithClass::<#src, u8, u8>::register(_ctx)?;
+
+                #ctor_func
+            }
         } else {
             quote! {
                 impl #lib_crate::ClassDef for #src {
@@ -184,6 +211,7 @@ impl Binder {
         has_refs: bool,
         cloneable: bool,
         error_subtype: bool,
+        is_func: bool,
     ) {
         let src = self.top_src().clone();
         let class = self.top_class().unwrap();
@@ -199,6 +227,9 @@ impl Binder {
         }
         if error_subtype {
             class.error_subtype = true;
+        }
+        if is_func {
+            class.is_func = true;
         }
     }
 
@@ -223,6 +254,7 @@ impl Binder {
             writable,
             enumerable,
             configurable,
+            is_func
         } = self.get_attrs(attrs);
 
         self.hide_item(attrs, hide);
@@ -251,6 +283,7 @@ impl Binder {
                         has_refs,
                         cloneable,
                         error_subtype,
+                        is_func
                     );
 
                     use Fields::*;
@@ -293,6 +326,7 @@ impl Binder {
             writable,
             enumerable,
             configurable,
+            is_func
         } = self.get_attrs(attrs);
 
         self.hide_item(attrs, hide);
@@ -321,6 +355,7 @@ impl Binder {
                         has_refs,
                         cloneable,
                         error_subtype,
+                        is_func
                     );
 
                     // TODO support for variant fields
@@ -454,7 +489,7 @@ impl Binder {
 
         self.with_dir(ident, |this| {
             this.with_item::<BindClass, _>(ident, &name, false, false, false, |this| {
-                this.update_class(ident, &name, None, has_refs, cloneable, false);
+                this.update_class(ident, &name, None, has_refs, cloneable, false, false);
 
                 this.bind_impl_items(items);
             });

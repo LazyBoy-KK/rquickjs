@@ -42,6 +42,7 @@ fn main() {
         "list.h",
         "quickjs-atom.h",
         "quickjs-opcode.h",
+        "quickjs-libc.h",
         "quickjs.h",
         "cutils.h",
     ];
@@ -50,6 +51,7 @@ fn main() {
         "libregexp.c",
         "libunicode.c",
         "cutils.c",
+        "quickjs-libc.c",
         "quickjs.c",
         "libbf.c",
     ];
@@ -64,6 +66,10 @@ fn main() {
         defines.push(("CONFIG_WASM".into(), None))
     }
 
+    if env::var("CARGO_FEATURE_QUICKJS_LIBC_TEST").is_ok() {
+        defines.push(("CONFIG_TEST".into(), None))
+    }
+
     for feature in &features {
         if feature.starts_with("dump-") && env::var(feature_to_cargo(feature)).is_ok() {
             defines.push((feature_to_define(feature), None));
@@ -75,8 +81,8 @@ fn main() {
     }
 
     // generating bindings
-    bindgen(out_dir, out_dir.join("quickjs.h"), &defines);
-    // bindgen(out_dir, src_dir.join("quickjs.h"), &defines);
+    bindgen(out_dir, src_dir.join("quickjs.h"), &defines);
+    bindgen(out_dir, src_dir.join("quickjs-libc.h"), &defines);
     let mut builder = cc::Build::new();
     builder
         .extra_warnings(false)
@@ -140,9 +146,9 @@ where
     let out_dir = out_dir.as_ref();
     let header_file = header_file.as_ref();
 
-    let mut cflags = vec![format!("--target={}", target)];
+    let mut cflags = vec![format!("--target={}", target.clone())];
 
-    //format!("-I{}", out_dir.parent().display()),
+    //format!("-I{}", out_dir.parent().display())
 
     for (name, value) in defines {
         cflags.push(if let Some(value) = value {
@@ -150,6 +156,9 @@ where
         } else {
             format!("-D{}", name.as_ref())
         });
+    }
+    if target == "aarch64-linux-android" {
+        cflags.push("-DANDROID_ARM64V8A".to_owned());
     }
 
     let bindings = bindgen_rs::Builder::default()

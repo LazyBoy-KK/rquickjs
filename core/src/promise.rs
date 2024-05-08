@@ -1,5 +1,5 @@
 use crate::{
-    Context, Ctx, Error, FromJs, Func, Function, IntoJs, Mut, Object, ParallelSend, Persistent,
+    Ctx, Error, FromJs, Func, Function, Mut, Object, ParallelSend,
     Ref, Result, This, Value,
 };
 use std::{
@@ -7,6 +7,9 @@ use std::{
     pin::Pin,
     task::{Context as TaskContext, Poll, Waker},
 };
+
+#[cfg(not(feature = "quickjs-libc"))]
+use crate::{Context, IntoJs, Persistent};
 
 /// Future-aware promise
 #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
@@ -78,8 +81,8 @@ impl<T> Future for Promise<T> {
     }
 }
 
-/// Wrapper for futures to convert to JS promises
 #[cfg(not(feature = "quickjs-libc"))]
+/// Wrapper for futures to convert to JS promises
 #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "futures")))]
 #[repr(transparent)]
 pub struct Promised<T>(pub T);
@@ -95,40 +98,6 @@ impl<T> From<T> for Promised<T> {
 impl<'js, T> IntoJs<'js> for Promised<T>
 where
     T: Future + ParallelSend + 'static,
-    for<'js_> T::Output: IntoJs<'js_> + 'static,
-{
-    fn into_js(self, ctx: Ctx<'js>) -> Result<Value<'js>> {
-        let future = self.0;
-        let (promise, resolve, reject) = ctx.promise()?;
-
-        let resolve = Persistent::save(ctx, resolve);
-        let reject = Persistent::save(ctx, reject);
-        let context = Context::from_ctx(ctx)?;
-        ctx.spawn(async move {
-            let value = future.await;
-            context.with(|ctx| {
-                let (func, value) = match value.into_js(ctx) {
-                    Ok(value) => (resolve.clone().restore(ctx).unwrap(), value),
-                    Err(error) => (
-                        reject.clone().restore(ctx).unwrap(),
-                        error.into_js(ctx).unwrap(),
-                    ),
-                };
-                func.call::<_, Value>((value,)).unwrap();
-            });
-        });
-
-        Ok(promise.into_value())
-    }
-}
-
-#[cfg(feature = "quickjs-libc")]
-pub struct Promised<T>(pub T);
-
-#[cfg(feature = "quickjs-libc")]
-impl<'js, T> IntoJs<'js> for Promised<T>
-where
-    T: Future + 'static,
     for<'js_> T::Output: IntoJs<'js_> + 'static,
 {
     fn into_js(self, ctx: Ctx<'js>) -> Result<Value<'js>> {

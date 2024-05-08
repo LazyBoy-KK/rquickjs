@@ -1,5 +1,7 @@
 #[cfg(feature = "quickjs-libc")]
 use super::AsyncCtx;
+#[cfg(feature = "quickjs-libc")]
+use crate::qjs;
 #[cfg(not(feature = "quickjs-libc"))]
 use super::{Executor, Idle, Spawner};
 use super::{Inner, Opaque};
@@ -99,10 +101,17 @@ impl Opaque {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    pub fn get_async_ctx(&mut self) -> &mut AsyncCtx {
+    pub fn get_async_ctx_mut(&mut self) -> &mut AsyncCtx {
         self.async_ctx
             .as_mut()
-            .expect("Muti-thread components are not initialized for the Runtime.")
+            .expect("AsyncCtx are not initialized for the Runtime.")
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn get_async_ctx(&mut self) -> &AsyncCtx {
+        self.async_ctx
+            .as_ref()
+            .expect("AsyncCtx are not initialized for the Runtime.")
     }
 }
 
@@ -147,14 +156,14 @@ impl Runtime {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    pub fn init_exec_in_thread(&self) {
+    pub fn init_exec_in_thread(&self, rt: *mut qjs::JSRuntime) {
         let mut inner = self.inner.lock();
         let opaque = unsafe { &mut *(inner.get_opaque_mut() as *mut Opaque) };
         assert!(
             opaque.async_ctx.is_none(),
             "Multi-thread components already initialized for the Runtime"
         );
-        let async_ctx = AsyncCtx::new();
+        let async_ctx = AsyncCtx::new(rt);
         opaque.async_ctx = Some(async_ctx);
     }
 

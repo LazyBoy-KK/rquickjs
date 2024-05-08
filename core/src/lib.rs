@@ -52,6 +52,8 @@ pub use runtime::{Executor, ExecutorSpawner, Idle};
 pub use runtime::{MemoryUsage, Runtime};
 mod context;
 pub use context::{intrinsic, Context, ContextBuilder, Ctx, EvalOptions, Intrinsic, MultiWith};
+#[cfg(feature = "quickjs-libc")]
+pub use context::{ContextWrapper, JsMessageCtx, WasmMessageCtx, SendSyncContext};
 mod value;
 pub use value::*;
 mod persistent;
@@ -87,7 +89,11 @@ pub(crate) use std::{result::Result as StdResult, string::String as StdString};
 mod promise;
 
 #[cfg(feature = "futures")]
-pub use promise::{Promise, Promised};
+pub use promise::Promise;
+
+#[cfg(feature = "futures")]
+#[cfg(not(feature = "quickjs-libc"))]
+pub use promise::Promised;
 
 #[cfg(feature = "allocator")]
 mod allocator;
@@ -106,17 +112,6 @@ pub use loader::{
 
 #[cfg(feature = "dyn-load")]
 pub use loader::NativeLoader;
-
-#[cfg(feature = "quickjs-libc")]
-pub const JS_GC_UNKNOWN: u32 = qjs::JS_GC_UNKNOWN;
-#[cfg(feature = "quickjs-libc")]
-pub const JS_GC_DECREF: u32 = qjs::JS_GC_DECREF;
-#[cfg(feature = "quickjs-libc")]
-pub const JS_GC_INCREF: u32 = qjs::JS_GC_INCREF;
-#[cfg(feature = "quickjs-libc")]
-pub fn get_js_gc_phase() -> u32 {
-    unsafe { qjs::JS_GetNowGCPhaseRust() }
-}
 
 #[cfg(test)]
 pub(crate) fn test_with<F, R>(func: F) -> R

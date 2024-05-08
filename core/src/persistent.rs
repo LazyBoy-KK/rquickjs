@@ -106,6 +106,8 @@ impl<T> Persistent<T> {
         let value = self.value.get();
         if unsafe { qjs::JS_VALUE_HAS_REF_COUNT(value) } {
             unsafe { qjs::JS_MarkValue(self.rt, value, mark_func) };
+            // JS_FreeValueRT in Persistent::drop will not work in JS_RunGC
+            // since that rt->gc_phase is JS_GC_PHASE_REMOVE_CYCLES at this time
             #[cfg(not(feature = "quickjs-libc"))]
             if 0 == unsafe { qjs::JS_ValueRefCount(value) } {
                 self.value.set(qjs::JS_UNDEFINED);

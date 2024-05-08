@@ -4,6 +4,7 @@ use crate::{
 };
 
 #[cfg(feature = "futures")]
+#[cfg(not(feature = "quickjs-libc"))]
 use std::future::Future;
 
 #[cfg(not(feature = "quickjs-libc"))]
@@ -26,6 +27,7 @@ use std::{
 };
 
 /// Eval options.
+#[derive(Clone)]
 pub struct EvalOptions {
     /// Global code.
     pub global: bool,
@@ -80,7 +82,7 @@ impl<'js> Ctx<'js> {
         }
     }
 
-    pub(crate) fn new(ctx: &'js Context) -> Self {
+    pub fn new(ctx: &'js Context) -> Self {
         Ctx {
             ctx: ctx.ctx,
             marker: PhantomData,
@@ -115,6 +117,80 @@ impl<'js> Ctx<'js> {
 
         V::from_js(self, unsafe {
             let val = self.eval_raw(source, file_name, options.to_flag())?;
+            Value::from_js_value(self, val)
+        })
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn eval_with_options_and_std_loop<V: FromJs<'js>, S: Into<Vec<u8>>>(
+        self,
+        source: S,
+        options: EvalOptions,
+    ) -> Result<V> {
+        let file_name = unsafe { CStr::from_bytes_with_nul_unchecked(b"eval_script\0") };
+
+        V::from_js(self, unsafe {
+            let val = self.eval_raw(source, file_name, options.to_flag())?;
+            qjs::js_std_loop(self.ctx);
+            Value::from_js_value(self, val)
+        })
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn eval_with_options_and_std_loop_test<V: FromJs<'js>, S: Into<Vec<u8>>>(
+        self,
+        source: S,
+        options: EvalOptions
+    ) -> Result<V> {
+        let file_name = unsafe { CStr::from_bytes_with_nul_unchecked(b"eval_script\0") };
+
+        V::from_js(self, unsafe {
+            let val = self.eval_raw(source, file_name, options.to_flag())?;
+            qjs::js_std_loop_test(self.ctx);
+            Value::from_js_value(self, val)
+        })
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn eval_file_with_options_and_std_loop<V: FromJs<'js>, P: AsRef<Path>>(
+        self,
+        path: P,
+        options: EvalOptions,
+    ) -> Result<V> {
+        let buffer = fs::read(path.as_ref())?;
+        let file_name = CString::new(
+            path.as_ref()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        )?;
+
+        unsafe {
+            let val = self.eval_raw(buffer, file_name.as_c_str(), options.to_flag())?;
+            qjs::js_std_loop(self.ctx);
+            V::from_js(self, Value::from_js_value(self, val))
+        }
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn eval_file_with_options_and_std_loop_test<V: FromJs<'js>, P: AsRef<Path>>(
+        self,
+        path: P,
+        options: EvalOptions
+    ) -> Result<V> {
+        let buffer = fs::read(path.as_ref())?;
+        let file_name = CString::new(
+            path.as_ref()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        )?;
+
+        V::from_js(self, unsafe {
+            let val = self.eval_raw(buffer, file_name.as_c_str(), options.to_flag())?;
+            qjs::js_std_loop_test(self.ctx);
             Value::from_js_value(self, val)
         })
     }
@@ -205,17 +281,24 @@ impl<'js> Ctx<'js> {
         opaque.get_spawner().spawn(future);
     }
 
+    // #[cfg(feature = "quickjs-libc")]
+    // #[cfg(feature = "futures")]
+    // pub fn spawn<F>(&self, future: F)
+    // where
+    //     F: Future + 'static,
+    //     F::Output: Send + 'static,
+    // {
+    //     let opaque = unsafe { self.get_opaque() };
+    //     let async_ctx = opaque.get_async_ctx();
+    //     let task = async_ctx.spawn_js_task(future);
+    //     task.detach();
+    // }
+
     #[cfg(feature = "quickjs-libc")]
     #[cfg(feature = "futures")]
-    pub fn spawn<F>(&self, future: F)
-    where
-        F: Future + 'static,
-        F::Output: Send + 'static,
-    {
+    pub fn async_ctx_mut(&self) -> &mut AsyncCtx {
         let opaque = unsafe { self.get_opaque() };
-        let async_ctx = opaque.get_async_ctx();
-        let task = async_ctx.spawn_js_task(future);
-        task.detach();
+        opaque.get_async_ctx_mut()
     }
 
     #[cfg(feature = "quickjs-libc")]

@@ -81,6 +81,19 @@ optional = true
 version = "1"
 optional = true
 
+[dependencies.crossbeam-queue]
+version = "0.3"
+optional = true
+
+[dependencies.libc]
+version = "0.2"
+optional = true
+
+[dependencies.nix]
+version = "0.27"
+optional = true
+features = ["default", "time"]
+
 [features]
 default = []
 
@@ -126,7 +139,9 @@ properties = []
 array-buffer = []
 
 # Enable quickjs-libc compatable code path
-quickjs-libc = ["rquickjs-sys/quickjs-libc", "waker-fn"]
+quickjs-libc = ["rquickjs-sys/quickjs-libc", "waker-fn", "crossbeam-queue", "nix"]
+
+quickjs-libc-test = ["rquickjs-sys/quickjs-libc-test", "libc"]
 
 # Enable interop between Rust futures and JS Promises
 futures = ["pin-project-lite", "futures-lite", "async-task", "flume"]

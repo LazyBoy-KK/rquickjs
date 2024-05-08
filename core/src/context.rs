@@ -1,5 +1,10 @@
 use crate::{qjs, Error, Result, Runtime};
+#[cfg(feature = "quickjs-libc")]
+use crate::{AsyncCtx, IntoJs, SendSyncJsValue};
 use std::mem;
+
+#[cfg(feature = "quickjs-libc")]
+use std::{any::Any, sync::{Arc, atomic::AtomicI32}, future::Future};
 
 mod builder;
 pub use builder::{intrinsic, ContextBuilder, Intrinsic};
@@ -91,6 +96,30 @@ impl Context {
         Ok(res)
     }
 
+    /// Creates a context with all standart available intrinsics registered 
+    /// and quickjs-libc.
+    #[cfg(feature = "quickjs-libc")]
+    pub fn full_with_libc(runtime: &Runtime) -> Result<Self> {
+        let guard = runtime.inner.lock();
+        let ctx = unsafe { qjs::JS_NewCustomContext(guard.rt) };
+        if ctx.is_null() {
+            return Err(Error::Allocation);
+        }
+        unsafe { 
+            crate::Function::init_raw(ctx);
+            qjs::JS_AddIntrinsicWebAssembly(ctx);
+            qjs::js_std_add_helpers(ctx, -1, std::ptr::null_mut());
+        }
+        let res = Context {
+            ctx,
+            rt: runtime.clone(),
+        };
+        // Explicitly drop the guard to ensure it is valid during the entire use of runtime
+        mem::drop(guard);
+
+        Ok(res)
+    }
+
     /// Create a context builder for creating a context with a specific set of intrinsics
     pub fn builder() -> ContextBuilder<()> {
         ContextBuilder::default()
@@ -107,6 +136,28 @@ impl Context {
     /// Returns the associated runtime
     pub fn runtime(&self) -> &Runtime {
         &self.rt
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn async_ctx_mut(&self) -> &mut AsyncCtx {
+        use crate::runtime::Opaque;
+
+        unsafe {
+            let rt = qjs::JS_GetRuntime(self.ctx);
+            let opaque: &mut Opaque = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
+            opaque.get_async_ctx_mut()
+        }
+    }
+
+    #[cfg(feature = "quickjs-libc")]
+    pub fn async_ctx(&self) -> &AsyncCtx {
+        use crate::runtime::Opaque;
+
+        unsafe {
+            let rt = qjs::JS_GetRuntime(self.ctx);
+            let opaque: &mut Opaque = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
+            opaque.get_async_ctx()
+        }
     }
 
     pub(crate) fn get_runtime_ptr(&self) -> *mut qjs::JSRuntime {
@@ -152,8 +203,6 @@ impl Context {
     }
 
     pub unsafe fn init_raw(ctx: *mut qjs::JSContext) {
-        #[cfg(feature = "quickjs-libc")]
-        crate::runtime::Opaque::init_raw(ctx);
         crate::Function::init_raw(ctx);
     }
 }
@@ -192,6 +241,216 @@ unsafe impl Send for Context {}
 // this object is sync
 #[cfg(feature = "parallel")]
 unsafe impl Sync for Context {}
+
+#[cfg(feature = "quickjs-libc")]
+#[derive(Clone)]
+pub struct ContextWrapper(Arc<Context>);
+// js context wrapped by ContextWrapper will not be dropped in threads other than js runtime thread
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Send for ContextWrapper {}
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Sync for ContextWrapper {}
+
+#[cfg(feature = "quickjs-libc")]
+impl ContextWrapper {
+    pub fn new(context: Context) -> Self {
+        Self(Arc::new(context))
+    }
+
+    pub fn with<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Ctx) -> R
+    {
+        self.0.with(f)
+    }
+
+    pub fn get_ctx<'js>(&'js self) -> Ctx<'js> {
+        Ctx::new(&self.0)
+    }
+
+    pub fn runtime(&self) -> &Runtime {
+        self.0.runtime()
+    }
+
+    pub fn async_ctx_mut(&self) -> &mut AsyncCtx {
+        self.0.async_ctx_mut()
+    }
+
+    pub fn async_ctx(&self) -> &AsyncCtx {
+        self.0.async_ctx()
+    }
+
+    pub fn ref_count(&self) -> usize {
+        Arc::strong_count(&self.0)
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+pub struct JsMessageCtx {
+    ctx: SendSyncContext,
+    async_ctx: *mut AsyncCtx,
+    resolve: SendSyncJsValue,
+    reject: SendSyncJsValue,
+    total: Arc<AtomicI32>,
+}
+
+#[cfg(feature = "quickjs-libc")]
+impl JsMessageCtx {
+    pub(crate) fn new(
+        ctx: SendSyncContext, 
+        async_ctx: *mut AsyncCtx,
+        resolve: SendSyncJsValue,
+        reject: SendSyncJsValue,
+        total: Arc<AtomicI32>
+    ) -> Self {
+        Self {
+            ctx,
+            async_ctx,
+            resolve,
+            reject,
+            total
+        }
+    }
+
+    pub fn ctx(&self) -> Context {
+        self.ctx.0.clone()
+    }
+
+    pub fn resolve<'js, T>(self, res: Box<T>) 
+    where
+        T: IntoJs<'js>
+    {
+        let context = self.ctx.into_inner();
+        let ctx = Ctx::new(unsafe { std::mem::transmute(&context) });
+        let resolve = self.resolve.into_inner(ctx).unwrap();
+        let resolve = resolve.into_function().unwrap();
+        let value = res.into_js(ctx).unwrap();
+        resolve.call::<_, crate::Value>((value, )).unwrap();
+        self.total.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn reject(self, err: crate::Error) {
+        let context = self.ctx.into_inner();
+        let ctx = Ctx::new(&context);
+        let reject = self.reject.into_inner(ctx).unwrap();
+        let reject = reject.into_function().unwrap();
+        let value = err.into_js(ctx).unwrap();
+        reject.call::<_, crate::Value>((value, )).unwrap();
+        self.total.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn spawn_wasm_task(
+        self, 
+        func: impl FnOnce() -> Result<Box<dyn Any + Send + 'static>> + Send + 'static,
+        promise_func: impl FnOnce(WasmMessageCtx, Option<Result<Box<dyn Any + Send + 'static>>>) + 'static,
+    ) {
+        let async_ctx = unsafe { &mut *self.async_ctx };
+        async_ctx.spawner.spawn_wasm_task(
+            self.ctx, 
+            self.async_ctx,
+            Some(Box::new(func)), 
+            Box::new(promise_func),
+            self.resolve, 
+            self.reject, 
+            false
+        );
+        async_ctx.unpark_thread();
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+pub struct WasmMessageCtx {
+    ctx: SendSyncContext,
+    async_ctx: *mut AsyncCtx,
+    resolve: SendSyncJsValue,
+    reject: SendSyncJsValue,
+}
+
+// resolve and reject will not be called in wasm thread
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Send for WasmMessageCtx {}
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Sync for WasmMessageCtx {}
+
+#[cfg(feature = "quickjs-libc")]
+impl WasmMessageCtx {
+    pub(crate) fn new(
+        ctx: SendSyncContext,
+        async_ctx: *mut AsyncCtx,
+        resolve: SendSyncJsValue,
+        reject: SendSyncJsValue,
+    ) -> Self {
+        Self {
+            ctx,
+            async_ctx,
+            resolve,
+            reject,
+        }
+    }
+
+    pub fn resolve<'js, T>(self, res: Box<T>) 
+    where
+        T: IntoJs<'js> + 'static,
+    {
+        self.spawn_js_task(None, move |ctx, _| ctx.resolve(res));
+    }
+
+    pub fn reject(self, err: crate::Error) {
+        self.spawn_js_task(None, move |ctx, _| ctx.reject(err));
+    }
+
+    pub fn reject_with_clocure(self, err: crate::Error, func: Box<dyn FnOnce()>) {
+        self.spawn_js_task(None, move |ctx, _| {
+            func();
+            ctx.reject(err)
+        });
+    }
+
+    pub fn spawn_js_task(
+        self, 
+        func: Option<Box<dyn FnOnce(&JsMessageCtx) -> Result<Box<dyn Any + 'static>> + 'static>>,
+        promise_func: impl FnOnce(JsMessageCtx, Option<Result<Box<dyn Any + 'static>>>) + 'static,
+    ) {
+        let async_ctx = unsafe { &mut *self.async_ctx };
+        async_ctx.spawner.spawn_js_task(
+            self.ctx, 
+            self.async_ctx,
+            func, 
+            Box::new(promise_func),
+            self.resolve, 
+            self.reject, 
+            false
+        );
+    }
+
+    pub fn spawn_import_js_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static
+    {
+        let async_ctx = unsafe { &mut *self.async_ctx };
+        async_ctx.spawn_import_js_task(future, false)
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+pub struct SendSyncContext(Context);
+
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Send for SendSyncContext {}
+#[cfg(feature = "quickjs-libc")]
+unsafe impl Sync for SendSyncContext {}
+
+#[cfg(feature = "quickjs-libc")]
+impl SendSyncContext {
+    pub fn new(ctx: Context) -> Self {
+        Self(ctx)
+    }
+
+    pub fn into_inner(self) -> Context {
+        self.0
+    }
+}
 
 #[cfg(test)]
 mod test {

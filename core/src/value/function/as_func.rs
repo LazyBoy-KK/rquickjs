@@ -11,8 +11,13 @@ use crate::{Class, ClassDef, Constructor};
 use crate::{ErrorConstructor, ErrorDef};
 
 #[cfg(feature = "futures")]
-use crate::{Async, Promised};
+#[cfg(not(feature = "quickjs-libc"))]
+use crate::Async;
 #[cfg(feature = "futures")]
+#[cfg(not(feature = "quickjs-libc"))]
+use crate::Promised;
+#[cfg(feature = "futures")]
+#[cfg(not(feature = "quickjs-libc"))]
 use std::future::Future;
 
 /// The trait to wrap rust function to JS directly
@@ -73,6 +78,7 @@ macro_rules! as_function_impls {
 
             // for async Fn() via Async wrapper
             #[cfg(feature = "futures")]
+            #[cfg(not(feature = "quickjs-libc"))]
             $(#[$meta])*
             impl<'js, F, R $(, $arg)*> AsFunction<'js, ($($arg,)*), Promised<R>> for Async<F>
             where
@@ -125,6 +131,7 @@ macro_rules! as_function_impls {
 
             // for async FnMut() via MutFn wrapper
             #[cfg(feature = "futures")]
+            #[cfg(not(feature = "quickjs-libc"))]
             $(#[$meta])*
             impl<'js, F, R $(, $arg)*> AsFunction<'js, ($($arg,)*), Promised<R>> for Async<MutFn<F>>
             where
@@ -181,6 +188,7 @@ macro_rules! as_function_impls {
 
             // for async FnOnce() via OnceFn wrapper
             #[cfg(feature = "futures")]
+            #[cfg(not(feature = "quickjs-libc"))]
             $(#[$meta])*
             impl<'js, F, R $(, $arg)*> AsFunction<'js, ($($arg,)*), Promised<R>> for Async<OnceFn<F>>
             where
@@ -237,6 +245,7 @@ macro_rules! as_function_impls {
 
             // for async methods via Method wrapper
             #[cfg(feature = "futures")]
+            #[cfg(not(feature = "quickjs-libc"))]
             $(#[$meta])*
             impl<'js, F, R, T $(, $arg)*> AsFunction<'js, (T, $($arg),*), Promised<R>> for Async<Method<F>>
             where
