@@ -411,7 +411,8 @@ impl Binder {
             }
 
             if object {
-                let obj_init = def.object_init(&name, &self.config);
+                // let obj_init = def.object_init(&name, &self.config);
+                let obj_init = def.object_init2(&name, &self.config, &mut bindings);
 
                 bindings.push(quote! {
                     impl #lib_crate::ObjectDef for #ident {

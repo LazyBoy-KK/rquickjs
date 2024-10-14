@@ -7,14 +7,13 @@ use crate::{get_exception, Ctx};
 #[cfg(not(feature = "quickjs-libc"))]
 use std::panic;
 
-#[cfg(feature = "futures")]
+#[cfg(any(feature = "futures", feature = "quickjs-libc"))]
 mod async_runtime;
-#[cfg(not(feature = "quickjs-libc"))]
-#[cfg(feature = "futures")]
+#[cfg(any(feature = "futures", feature = "quickjs-libc"))]
 pub use async_runtime::*;
-#[cfg(feature = "futures")]
+#[cfg(any(feature = "futures", feature = "quickjs-libc"))]
 mod async_executor;
-#[cfg(feature = "futures")]
+#[cfg(any(feature = "futures", feature = "quickjs-libc"))]
 pub use self::async_executor::*;
 
 #[cfg(feature = "registery")]
@@ -56,12 +55,10 @@ pub struct Opaque {
     pub registery: HashSet<RegisteryKey>,
 
     /// Async spawner
-    #[cfg(not(feature = "quickjs-libc"))]
-    #[cfg(feature = "futures")]
+    #[cfg(all(not(feature = "quickjs-libc"), feature = "futures"))]
     pub spawner: Option<Spawner>,
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "futures")]
     pub async_ctx: Option<AsyncCtx>,
 }
 
@@ -73,11 +70,9 @@ impl Opaque {
             runtime: runtime.weak(),
             #[cfg(feature = "registery")]
             registery: HashSet::default(),
-            #[cfg(not(feature = "quickjs-libc"))]
-            #[cfg(feature = "futures")]
+            #[cfg(all(not(feature = "quickjs-libc"), feature = "futures"))]
             spawner: Default::default(),
             #[cfg(feature = "quickjs-libc")]
-            #[cfg(feature = "futures")]
             async_ctx: Default::default(),
         }
     }
@@ -114,11 +109,6 @@ impl Opaque {
 unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
     let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
     let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
-    // let async_ctx = opaque.0.get_async_ctx_mut();
-    // if async_ctx.has_created_thread() {
-    //     async_ctx.join_handle();
-    // }
-
     let async_ctx = opaque.0.take_async_ctx();
     if let Some(async_ctx) = async_ctx {
         async_ctx.join_handle();

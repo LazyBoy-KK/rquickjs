@@ -36,7 +36,6 @@ mod safe_ref;
 pub(crate) use safe_ref::*;
 mod runtime;
 #[cfg(feature = "quickjs-libc")]
-#[cfg(feature = "futures")]
 pub use runtime::AsyncCtx;
 #[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "async-std")]

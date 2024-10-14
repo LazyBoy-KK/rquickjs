@@ -3,16 +3,13 @@ use crate::{
     Object, Result, Value,
 };
 
-#[cfg(feature = "futures")]
-#[cfg(not(feature = "quickjs-libc"))]
+#[cfg(all(feature = "futures", not(feature = "quickjs-libc")))]
 use std::future::Future;
 
-#[cfg(not(feature = "quickjs-libc"))]
-#[cfg(feature = "futures")]
+#[cfg(all(feature = "futures", not(feature = "quickjs-libc")))]
 use crate::ParallelSend;
 
 #[cfg(feature = "quickjs-libc")]
-#[cfg(feature = "futures")]
 use crate::runtime::AsyncCtx;
 
 #[cfg(feature = "registery")]
@@ -295,14 +292,12 @@ impl<'js> Ctx<'js> {
     // }
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "futures")]
     pub fn async_ctx_mut(&self) -> &mut AsyncCtx {
         let opaque = unsafe { self.get_opaque() };
         opaque.get_async_ctx_mut()
     }
 
     #[cfg(feature = "quickjs-libc")]
-    #[cfg(feature = "futures")]
     pub fn async_ctx(&self) -> &AsyncCtx {
         let opaque = unsafe { self.get_opaque() };
         opaque.get_async_ctx()

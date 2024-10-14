@@ -28,7 +28,7 @@ use std::{
 #[cfg(feature = "quickjs-libc")]
 use std::{
     any::Any, 
-    sync::{atomic::{AtomicI32, AtomicBool}, Arc},
+    sync::{atomic::AtomicI32, Arc},
     panic::AssertUnwindSafe,
     collections::VecDeque,
     cell::UnsafeCell
@@ -246,8 +246,7 @@ impl JsFuncMessage {
 
 #[cfg(feature = "quickjs-libc")]
 pub struct ThreadRustTaskExecutor {
-    wasm_tasks: std::sync::mpsc::Receiver<WasmFuncMessage>,
-    closed: Arc<AtomicBool>,
+    wasm_tasks: crossbeam_channel::Receiver<WasmFuncMessage>,
 }
 
 #[cfg(feature = "quickjs-libc")]
@@ -257,29 +256,12 @@ unsafe impl Sync for ThreadRustTaskExecutor {}
 
 #[cfg(feature = "quickjs-libc")]
 impl ThreadRustTaskExecutor {
-    // pub fn run(&mut self) {
-    //     loop {
-    //         if self.closed.load(Ordering::Acquire) {
-    //             break;
-    //         }
-    //         match self.wasm_tasks.try_recv() {
-    //             Ok(msg) => msg.call(),
-    //             Err(std::sync::mpsc::TryRecvError::Empty) => std::thread::park(),
-    //             Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
-    //         }
-    //     }
-    // }
     pub fn run(&mut self) {
         loop {
             match self.wasm_tasks.recv() {
                 Ok(msg) => msg.call(),
-                Err(std::sync::mpsc::RecvError) => break,
+                Err(crossbeam_channel::RecvError) => break,
             }
-            // match self.wasm_tasks.try_recv() {
-            //     Ok(msg) => msg.call(),
-            //     Err(std::sync::mpsc::TryRecvError::Empty) => std::thread::park(),
-            //     Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
-            // }
         }
     }
 }
@@ -291,7 +273,6 @@ pub struct AsyncCtx {
     pub spawner: ThreadTaskSpawner,
     js_exec: ThreadJsTaskExecutor,
     wasm_thread: Option<std::thread::JoinHandle<()>>,
-    closed: Arc<AtomicBool>
 }
 
 #[cfg(feature = "quickjs-libc")]
@@ -299,11 +280,10 @@ impl AsyncCtx {
     pub(crate) fn new(rt: *mut qjs::JSRuntime) -> Self {
         let js_task_tx = Arc::new(UnsafeCell::new(VecDeque::with_capacity(100)));
         let js_task_rx = js_task_tx.clone();
-        let (wasm_task_tx, wasm_task_rx) = std::sync::mpsc::channel();
+        let (wasm_task_tx, wasm_task_rx) = crossbeam_channel::unbounded();
         let import_js_task_tx = Arc::new(UnsafeCell::new(Vec::with_capacity(1)));
         let import_js_task_rx = import_js_task_tx.clone();
         let total = Arc::new(AtomicI32::new(0));
-        let closed = Arc::new(AtomicBool::new(false));
 
         let mutex = Arc::new(std::sync::Mutex::new(false));
         
@@ -319,7 +299,6 @@ impl AsyncCtx {
 
         let rust_exec = ThreadRustTaskExecutor {
             wasm_tasks: wasm_task_rx,
-            closed: closed.clone(),
         };
 
         let js_exec = ThreadJsTaskExecutor {
@@ -337,7 +316,6 @@ impl AsyncCtx {
             spawner,
             js_exec,
             wasm_thread: None,
-            closed
         }
     }
 
@@ -387,11 +365,6 @@ impl AsyncCtx {
             reject, 
             new_task
         );
-        self.unpark_thread();
-    }
-
-    pub(crate) fn unpark_thread(&self) {
-        self.wasm_thread.as_ref().unwrap().thread().unpark();
     }
 
     pub fn spawn_js_task(
@@ -440,19 +413,9 @@ impl AsyncCtx {
         }
     }
 
-    // pub(crate) fn join_handle(&mut self) {
-    //     self.closed.store(true, Ordering::Release);
-    //     if let Some(handle) = self.wasm_thread.take() {
-    //         handle.thread().unpark();
-    //         handle.join().unwrap();
-    //     }
-    // }
-
     pub(crate) fn join_handle(mut self) {
-        self.closed.store(true, Ordering::Release);
         drop(self.spawner);
         if let Some(handle) = self.wasm_thread.take() {
-            handle.thread().unpark();
             handle.join().unwrap();
         }
     }
@@ -463,9 +426,8 @@ pub struct ThreadTaskSpawner {
     pipe: Option<RustMsgPipe>,
     js_tasks: Arc<UnsafeCell<VecDeque<JsFuncMessage>>>,
     import_js_task: Arc<UnsafeCell<Vec<Runnable>>>,
-    wasm_tasks: std::sync::mpsc::Sender<WasmFuncMessage>,
+    wasm_tasks: crossbeam_channel::Sender<WasmFuncMessage>,
     total: Arc<AtomicI32>,
-
     mutex: Arc<std::sync::Mutex<bool>>,
 }
 
@@ -511,16 +473,12 @@ impl ThreadTaskSpawner {
             self.total.fetch_add(1, Ordering::Relaxed);
         }
         let js_task = self.get_js_task_mut();
-        
         let guard = self.mutex.lock().unwrap();
-        // let pipe = self.pipe.as_ref().unwrap();
-        // unsafe { qjs::JS_RustLockMutex(pipe.0); }
         if js_task.is_empty() {
             self.write_js_pipe();
         }
         js_task.push_back(msg);
         drop(guard);
-        // unsafe { qjs::JS_RustUnlockMutex(pipe.0); }
     }
 
     pub fn spawn_import_js_task<F>(
@@ -549,13 +507,10 @@ impl ThreadTaskSpawner {
         );
 
         let guard = self.mutex.lock().unwrap();
-        // let pipe = self.pipe.as_ref().unwrap();
-        // unsafe { qjs::JS_RustLockMutex(pipe.0); }
         if self.get_js_task_mut().is_empty() {
             self.write_js_pipe();
         }
         self.get_import_js_task_mut().push(runnable);
-        // unsafe { qjs::JS_RustUnlockMutex(pipe.0); }
         drop(guard);
         task
     }
@@ -580,7 +535,6 @@ pub struct ThreadJsTaskExecutor {
     js_tasks: Arc<UnsafeCell<VecDeque<JsFuncMessage>>>,
     import_js_task: Arc<UnsafeCell<Vec<Runnable>>>,
     total: Arc<AtomicI32>,
-
     mutex: Arc<std::sync::Mutex<bool>>,
 }
 
@@ -593,19 +547,16 @@ impl ThreadJsTaskExecutor {
         let js_task = self.get_js_task_mut();
 
         let guard = self.mutex.lock().unwrap();
-        // unsafe { qjs::JS_RustLockMutex(pipe.0); }
         if import_js_task.is_empty() && js_task.is_empty() {
             unsafe { 
                 qjs::JS_ReadRustMessagePipe(pipe.0); 
-                // qjs::JS_RustUnlockMutex(pipe.0);
             }
             drop(guard);
             let res = self.total.load(Ordering::Acquire);
             (res <= 0) as i32
         } else {
             let task = import_js_task.pop();
-            let msg = js_task.pop_back();
-            // unsafe { qjs::JS_RustUnlockMutex(pipe.0); }
+            let msg = js_task.pop_front();
             drop(guard);
             if let Some(task) = task {
                 task.run();

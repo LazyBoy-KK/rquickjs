@@ -34,6 +34,15 @@ optional = true
 version = "0.10"
 optional = true
 
+[dependencies.crossbeam-channel]
+# version = "0.5"
+path = "/home/kotoba/github-code/crossbeam/crossbeam-channel"
+optional = true
+
+[dependencies.concurrent-queue]
+version = "2"
+optional = true
+
 [dependencies.pin-project-lite]
 version = "0.2"
 optional = true
@@ -77,22 +86,9 @@ optional = true
 version = "1.3"
 optional = true
 
-[dependencies.waker-fn]
-version = "1"
-optional = true
-
-[dependencies.crossbeam-queue]
-version = "0.3"
-optional = true
-
 [dependencies.libc]
 version = "0.2"
 optional = true
-
-[dependencies.nix]
-version = "0.27"
-optional = true
-features = ["default", "time"]
 
 [features]
 default = []
@@ -139,7 +135,8 @@ properties = []
 array-buffer = []
 
 # Enable quickjs-libc compatable code path
-quickjs-libc = ["rquickjs-sys/quickjs-libc", "waker-fn", "crossbeam-queue", "nix"]
+quickjs-libc = ["rquickjs-sys/quickjs-libc", "futures-lite", "async-task", "crossbeam-channel"]
+# quickjs-libc = ["rquickjs-sys/quickjs-libc", "futures-lite", "async-task", "concurrent-queue"]
 
 quickjs-libc-test = ["rquickjs-sys/quickjs-libc-test", "libc"]
 

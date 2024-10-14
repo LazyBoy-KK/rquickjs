@@ -33,6 +33,42 @@ impl BindMod {
         quote! { #(#exports_list)* }
     }
 
+    pub fn object_init2(&self, _name: &str, cfg: &Config, binding: &mut Vec<TokenStream>) -> TokenStream {
+        let exports_list = self.items.iter().map(|(name, bind)| {
+            match bind {
+                crate::BindItem::Mod(module) => module.expand2(name, cfg, binding),
+                crate::BindItem::Class(class) => class.expand2(name, cfg, binding),
+                _ => bind.expand(name, cfg)
+            }
+        });
+        quote! { #(#exports_list)* }
+    }
+
+    pub fn expand2(&self, name: &str, cfg: &Config, binding: &mut Vec<TokenStream>) -> TokenStream {
+        let lib_crate = &cfg.lib_crate;
+        let exports_var = &cfg.exports_var;
+        let bindings = self.object_init2(name, cfg, binding);
+        let mut prop = quote! {
+            #lib_crate::Property::from({
+                let #exports_var = #lib_crate::Object::new(_ctx)?;
+                #bindings
+                #exports_var
+            })
+        };
+        if self.writable {
+            prop.extend(quote! { .writable() });
+        }
+        if self.enumerable {
+            prop.extend(quote! { .enumerable() });
+        }
+        if self.configurable {
+            prop.extend(quote! { .configurable() });
+        }
+        quote! {
+            #exports_var.prop(#name, #prop)?;
+        }
+    }
+
     pub fn expand(&self, name: &str, cfg: &Config) -> TokenStream {
         let lib_crate = &cfg.lib_crate;
         let exports_var = &cfg.exports_var;

@@ -52,6 +52,158 @@ impl BindClass {
         self.ctor.as_mut().unwrap()
     }
 
+    pub fn expand2(&self, name: &str, cfg: &Config, binding: &mut Vec<TokenStream>) -> TokenStream {
+        let lib_crate = &cfg.lib_crate;
+        let exports_var = &cfg.exports_var;
+        let src = &self.src;
+
+        let proto_list = self
+            .proto_items
+            .iter()
+            .map(|(name, bind)| bind.expand(name, cfg))
+            .collect::<Vec<_>>();
+
+        let static_list = self
+            .items
+            .iter()
+            .map(|(name, bind)| bind.expand(name, cfg))
+            .collect::<Vec<_>>();
+
+        let ctor_func = self.ctor.as_ref().map(|func| func.expand(name, cfg));
+
+        let mut extras = quote! {};
+
+        if !self.error_subtype {
+            extras.extend(quote! {
+                const HAS_PROTO: bool = true;
+
+                fn init_proto<'js>(ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
+                    let to_string_tag = unsafe { #lib_crate::Atom::from_atom_val(ctx, #lib_crate::qjs::JS_ATOM_Symbol_toStringTag) };
+                    #exports_var.prop(to_string_tag, #lib_crate::Property::from(Self::CLASS_NAME).configurable())?;
+                    #(#proto_list)*
+                    Ok(())
+                }
+            });
+        }
+
+        if !self.error_subtype && !static_list.is_empty() {
+            extras.extend(quote! {
+                const HAS_STATIC: bool = true;
+
+                fn init_static<'js>(_ctx: #lib_crate::Ctx<'js>, #exports_var: &#lib_crate::Object<'js>) -> #lib_crate::Result<()> {
+                    #(#static_list)*
+                    Ok(())
+                }
+            });
+        }
+
+        if !self.error_subtype && self.has_refs {
+            extras.extend(quote! {
+                const HAS_REFS: bool = true;
+
+                fn mark_refs(&self, marker: &#lib_crate::RefsMarker) {
+                    #lib_crate::HasRefs::mark_refs(self, marker);
+                }
+            })
+        }
+
+        let mut converts = quote! {
+            impl<'js> #lib_crate::IntoJs<'js> for #src {
+                fn into_js(self, ctx: #lib_crate::Ctx<'js>) -> #lib_crate::Result<#lib_crate::Value<'js>> {
+                    <#src as #lib_crate::ClassDef>::into_js_obj(self, ctx)
+                }
+            }
+
+            impl<'js> #lib_crate::FromJs<'js> for &'js #src {
+                fn from_js(ctx: #lib_crate::Ctx<'js>, value: #lib_crate::Value<'js>) -> #lib_crate::Result<Self> {
+                    <#src as #lib_crate::ClassDef>::from_js_ref(ctx, value)
+                }
+            }
+
+            impl<'js> #lib_crate::FromJs<'js> for &'js mut #src {
+                fn from_js(ctx: #lib_crate::Ctx<'js>, value: #lib_crate::Value<'js>) -> #lib_crate::Result<Self> {
+                    <#src as #lib_crate::ClassDef>::from_js_ref_mut(ctx, value)
+                }
+            }
+        };
+
+        if self.cloneable {
+            converts.extend(quote! {
+                impl<'js> #lib_crate::IntoJs<'js> for &#src {
+                    fn into_js(self, ctx: #lib_crate::Ctx<'js>) -> #lib_crate::Result<#lib_crate::Value<'js>> {
+                        #lib_crate::ClassDef::into_js_obj(self.clone(), ctx)
+                    }
+                }
+
+                impl<'js> #lib_crate::IntoJs<'js> for &mut #src {
+                    fn into_js(self, ctx: #lib_crate::Ctx<'js>) -> #lib_crate::Result<#lib_crate::Value<'js>> {
+                        #lib_crate::ClassDef::into_js_obj(self.clone(), ctx)
+                    }
+                }
+
+                impl<'js> #lib_crate::FromJs<'js> for #src {
+                    fn from_js(ctx: #lib_crate::Ctx<'js>, value: #lib_crate::Value<'js>) -> #lib_crate::Result<Self> {
+                        #lib_crate::ClassDef::from_js_obj(ctx, value)
+                    }
+                }
+            });
+        }
+
+        let class_name = &self.class_name;
+        if self.error_subtype {
+            binding.push(quote! {
+                impl #lib_crate::ErrorDef for #src {
+                    const CLASS_NAME: &'static str = #class_name;
+
+                    #extras
+                }
+            });
+            quote! {
+                #ctor_func
+            }
+        } else if self.is_func {
+            binding.push(quote! {
+                impl #lib_crate::ClassDef for #src {
+                    const CLASS_NAME: &'static str = #class_name;
+
+                    unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
+                        static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
+                        &mut CLASS_ID
+                    }
+
+                    #extras
+                }
+
+                #converts
+            });
+            quote! {
+                #lib_crate::JsFunctionWithClass::<#src, u8, u8>::register(_ctx)?;
+
+                #ctor_func
+            }
+        } else {
+            binding.push(quote! {
+                impl #lib_crate::ClassDef for #src {
+                    const CLASS_NAME: &'static str = #class_name;
+
+                    unsafe fn class_id() -> &'static mut #lib_crate::ClassId {
+                        static mut CLASS_ID: #lib_crate::ClassId = #lib_crate::ClassId::new();
+                        &mut CLASS_ID
+                    }
+
+                    #extras
+                }
+
+                #converts
+            });
+            quote! {
+                #lib_crate::Class::<#src>::register(_ctx)?;
+
+                #ctor_func
+            }
+        }
+    }
+
     pub fn expand(&self, name: &str, cfg: &Config) -> TokenStream {
         let lib_crate = &cfg.lib_crate;
         let exports_var = &cfg.exports_var;

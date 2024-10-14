@@ -4,7 +4,7 @@ use crate::{AsyncCtx, IntoJs, SendSyncJsValue};
 use std::mem;
 
 #[cfg(feature = "quickjs-libc")]
-use std::{any::Any, sync::{Arc, atomic::AtomicI32}, future::Future};
+use std::{any::Any, sync::{Arc, atomic::AtomicI32}};
 
 mod builder;
 pub use builder::{intrinsic, ContextBuilder, Intrinsic};
@@ -354,7 +354,6 @@ impl JsMessageCtx {
             self.reject, 
             false
         );
-        async_ctx.unpark_thread();
     }
 }
 
@@ -421,15 +420,6 @@ impl WasmMessageCtx {
             self.reject, 
             false
         );
-    }
-
-    pub fn spawn_import_js_task<F>(&self, future: F) -> async_task::Task<<F as Future>::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static
-    {
-        let async_ctx = unsafe { &mut *self.async_ctx };
-        async_ctx.spawn_import_js_task(future, false)
     }
 }
 
