@@ -4,6 +4,7 @@
 //! This crate is heavily inspired by the [rlua](https://crates.io/crates/rlua) crate.
 
 #![allow(clippy::needless_lifetimes)]
+#![cfg_attr(all(feature = "quickjs-libc", feature = "quickjs-libc-test", feature = "allocator"), feature(allocator_api))]
 #![cfg_attr(feature = "doc-cfg", feature(doc_cfg))]
 
 #[cfg(feature = "async-std")]
@@ -72,7 +73,7 @@ pub use registery_key::RegisteryKey;
 #[cfg(feature = "classes")]
 mod class;
 #[cfg(feature = "classes")]
-pub use class::{Class, ClassDef, Constructor, HasRefs, RefsMarker, WithProto};
+pub use class::{Class, ClassDef, Constructor, HasRefs, RefsMarker, WithProto, DeepSizeOf, DeepSizeCtx};
 #[cfg(feature = "classes")]
 #[cfg(feature = "quickjs-libc")]
 pub use class::{ErrorClass, ErrorConstructor, ErrorDef};
@@ -99,6 +100,12 @@ mod allocator;
 
 #[cfg(feature = "allocator")]
 pub use allocator::{Allocator, RawMemPtr, RustAllocator};
+
+#[cfg(feature = "quickjs-libc-test")]
+pub use allocator::{get_global_used_memory_size, memory_size_dec, memory_size_inc};
+
+#[cfg(all(feature = "quickjs-libc", feature = "allocator", not(feature = "quickjs-libc-test")))]
+pub use allocator::{QuickjsWasmAllocator, memory_size_dec, memory_size_inc};
 
 #[cfg(feature = "loader")]
 mod loader;

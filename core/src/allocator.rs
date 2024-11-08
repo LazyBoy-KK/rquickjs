@@ -1,6 +1,14 @@
 use crate::qjs;
 use std::ptr::null_mut;
 
+#[cfg(feature = "quickjs-libc-test")]
+mod global;
+#[cfg(feature = "quickjs-libc-test")]
+pub use global::{get_global_used_memory_size, memory_size_dec, memory_size_inc};
+#[cfg(all(feature = "quickjs-libc", feature = "allocator", not(feature = "quickjs-libc-test")))]
+mod qjs_wasm;
+#[cfg(all(feature = "quickjs-libc", feature = "allocator", not(feature = "quickjs-libc-test")))]
+pub use qjs_wasm::{QuickjsWasmAllocator, set_is_main_runtime, memory_size_dec, memory_size_inc, is_main_runtime};
 mod rust;
 pub use rust::RustAllocator;
 
@@ -24,12 +32,29 @@ pub trait Allocator {
     fn usable_size(ptr: RawMemPtr) -> usize
     where
         Self: Sized;
+
+	#[cfg(all(feature = "quickjs-libc", feature = "allocator"))]
+	fn trigger_gc(&self, _size: usize) -> i32 {
+		0
+	}
+
+	#[cfg(all(feature = "quickjs-libc", feature = "allocator"))]
+	fn set_gc_threshold(&mut self, _size: usize) {
+		unreachable!()
+	}
+
+	#[cfg(all(feature = "quickjs-libc", feature = "allocator"))]
+	fn enlarge_gc_threshold(&mut self) {
+		unreachable!()
+	}
 }
 
 type DynAllocator = Box<dyn Allocator>;
 
+#[repr(transparent)]
 pub struct AllocatorHolder(*mut DynAllocator);
 
+#[cfg(not(feature = "quickjs-libc"))]
 impl Drop for AllocatorHolder {
     fn drop(&mut self) {
         let _ = unsafe { Box::from_raw(self.0) };
@@ -46,6 +71,12 @@ impl AllocatorHolder {
             js_free: Some(Self::free),
             js_realloc: Some(Self::realloc),
             js_malloc_usable_size: Some(Self::malloc_usable_size::<A>),
+			#[cfg(all(feature = "quickjs-libc", feature = "allocator"))]
+			js_force_gc: Some(Self::trigger_gc),
+			#[cfg(all(feature = "quickjs-libc", feature = "allocator"))]
+			js_set_gc_threshold: Some(Self::set_gc_threshold),
+			#[cfg(all(feature = "quickjs-libc", feature = "allocator"))]
+			js_enlarge_gc_threshold: Some(Self::enlarge_gc_threshold),
         }
     }
 
@@ -60,6 +91,36 @@ impl AllocatorHolder {
         self.0
     }
 
+	#[cfg(feature = "allocator")]
+	unsafe extern "C" fn trigger_gc(
+        state: *mut qjs::JSMallocState,
+        size: qjs::size_t,
+    ) -> qjs::c_int {
+        let state = &*state;
+        let allocator = &mut *(state.opaque as *mut DynAllocator);
+
+		allocator.trigger_gc(size as _) as _
+    }
+
+	#[cfg(feature = "allocator")]
+	unsafe extern "C" fn set_gc_threshold(
+        state: *mut qjs::JSMallocState,
+        size: qjs::size_t,
+    ) {
+        let state = &*state;
+        let allocator = &mut *(state.opaque as *mut DynAllocator);
+
+		allocator.set_gc_threshold(size as _);
+    }
+
+	#[cfg(feature = "allocator")]
+	unsafe extern "C" fn enlarge_gc_threshold(state: *mut qjs::JSMallocState) {
+        let state = &*state;
+        let allocator = &mut *(state.opaque as *mut DynAllocator);
+
+		allocator.enlarge_gc_threshold();
+    }
+
     unsafe extern "C" fn malloc(
         state: *mut qjs::JSMallocState,
         size: qjs::size_t,
@@ -72,7 +133,7 @@ impl AllocatorHolder {
         let state = &*state;
         let allocator = &mut *(state.opaque as *mut DynAllocator);
 
-        allocator.alloc(size as _) as _
+		allocator.alloc(size as _) as _
     }
 
     unsafe extern "C" fn free(state: *mut qjs::JSMallocState, ptr: *mut qjs::c_void) {
@@ -97,12 +158,14 @@ impl AllocatorHolder {
         let allocator = &mut *(state.opaque as *mut DynAllocator);
 
         // simulate the default behavior of libc::realloc
-        if ptr.is_null() {
+        if ptr.is_null() && size != 0 {
             // alloc new memory chunk
             return allocator.alloc(size as _) as _;
         } else if size == 0 {
             // free memory chunk
-            allocator.dealloc(ptr as _);
+			if !ptr.is_null() {
+				allocator.dealloc(ptr as _);
+			}
             return null_mut();
         }
 

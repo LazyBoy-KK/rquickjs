@@ -62,6 +62,80 @@ pub trait Loader<S = ()> {
     fn load<'js>(&mut self, ctx: Ctx<'js>, name: &str) -> Result<Module<'js, Loaded<S>>>;
 }
 
+#[cfg(feature = "quickjs-libc")]
+struct QuickjsWasmLoaderOpaque {
+    loader: Box<dyn Loader>,
+}
+
+#[cfg(feature = "quickjs-libc")]
+#[repr(transparent)]
+pub(crate) struct QuickjsWasmLoaderHolder(*mut QuickjsWasmLoaderOpaque);
+
+#[cfg(feature = "quickjs-libc")]
+impl Drop for QuickjsWasmLoaderHolder {
+    fn drop(&mut self) {
+        let _opaque = unsafe { Box::from_raw(self.0) };
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+impl QuickjsWasmLoaderHolder {
+    pub fn new<L>(loader: L) -> Self
+    where
+        L: Loader + 'static,
+    {
+        Self(Box::into_raw(Box::new(QuickjsWasmLoaderOpaque {
+            loader: Box::new(loader),
+        })))
+    }
+
+	pub(crate) fn set_to_runtime(&self, rt: *mut qjs::JSRuntime) {
+		unsafe {
+			qjs::JS_SetModuleLoaderFunc(
+                rt,
+                None,
+                Some(Self::load_raw),
+                self.0 as _,
+            );
+		}
+	}
+
+    #[inline]
+    fn load<'js>(
+        opaque: &mut LoaderOpaque,
+        ctx: Ctx<'js>,
+        name: &CStr,
+    ) -> Result<*mut qjs::JSModuleDef> {
+        let name = name.to_str()?;
+
+        Ok(opaque.loader.load(ctx, name)?.into_module_def())
+    }
+
+    unsafe extern "C" fn load_raw(
+        ctx: *mut qjs::JSContext,
+        name: *const qjs::c_char,
+        opaque: *mut qjs::c_void,
+    ) -> *mut qjs::JSModuleDef {
+        let ctx = Ctx::from_ptr(ctx);
+        let name = CStr::from_ptr(name);
+        let loader = &mut *(opaque as *mut LoaderOpaque);
+
+        Self::load(loader, ctx, name).unwrap_or_else(|error| {
+            error.throw(ctx);
+            ptr::null_mut()
+        })
+    }
+}
+
+#[cfg(feature = "quickjs-libc")]
+pub trait QuickjsLoader {}
+
+#[cfg(feature = "quickjs-libc")]
+impl QuickjsLoader for QuickjsWasmLoaderHolder {}
+
+#[cfg(feature = "quickjs-libc")]
+impl QuickjsLoader for LoaderHolder {}
+
 struct LoaderOpaque {
     resolver: Box<dyn Resolver>,
     loader: Box<dyn Loader>,
@@ -98,6 +172,18 @@ impl LoaderHolder {
             );
         }
     }
+
+	#[cfg(feature = "quickjs-libc")]
+	pub(crate) fn set_only_loader_to_runtime(&self, rt: *mut qjs::JSRuntime) {
+		unsafe {
+			qjs::JS_SetModuleLoaderFunc(
+                rt,
+                None,
+                Some(Self::load_raw),
+                self.0 as _,
+            );
+		}
+	}
 
     #[inline]
     fn normalize<'js>(

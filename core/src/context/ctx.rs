@@ -259,6 +259,22 @@ impl<'js> Ctx<'js> {
         &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _)
     }
 
+	#[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
+	pub fn inc_malloc_size(&self, size: usize) {
+		unsafe {
+			let rt = qjs::JS_GetRuntime(self.ctx);
+			qjs::JS_IncMallocSize(rt, size as _);
+		}
+	}
+
+	#[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
+	pub fn dec_malloc_size(&self, size: usize) {
+		unsafe {
+			let rt = qjs::JS_GetRuntime(self.ctx);
+			qjs::JS_DecMallocSize(rt, size as _);
+		}
+	}
+
     #[cfg(not(feature = "quickjs-libc"))]
     pub(crate) unsafe fn get_opaque(self) -> &'js mut Opaque {
         let rt = qjs::JS_GetRuntime(self.ctx);

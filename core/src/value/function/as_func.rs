@@ -1,3 +1,6 @@
+#[cfg(feature = "classes")]
+use deepsize::DeepSizeOf;
+
 use super::{FromInput, Input};
 use crate::{
     Ctx, Error, FromJs, Function, IntoJs, Method, MutFn, OnceFn, ParallelSend, Result, This, Value,
@@ -309,7 +312,7 @@ as_function_impls! {
 #[cfg(feature = "classes")]
 impl<'js, C, F, A, R> AsFunction<'js, A, R> for Constructor<C, F>
 where
-    C: ClassDef + ParallelSend + 'static,
+    C: ClassDef + DeepSizeOf + ParallelSend + 'static,
     F: AsFunction<'js, A, R> + ParallelSend + 'static,
 {
     fn num_args() -> Range<usize> {

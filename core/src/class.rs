@@ -6,6 +6,7 @@ use crate::{
 };
 use std::{ffi::CString, marker::PhantomData, mem, ops::Deref, ptr};
 
+pub use deepsize::{DeepSizeOf, Context as DeepSizeCtx};
 pub use refs::{HasRefs, RefsMarker};
 
 /// The ES6 class definition trait
@@ -114,7 +115,7 @@ pub trait ClassDef {
     /// This method helps implement [`IntoJs`] trait for classes
     fn into_js_obj<'js>(self, ctx: Ctx<'js>) -> Result<Value<'js>>
     where
-        Self: Sized,
+        Self: Sized + DeepSizeOf,
     {
         Class::<Self>::instance(ctx, self).map(|Class(Object(val), _)| val)
     }
@@ -124,7 +125,7 @@ pub trait ClassDef {
     /// This method helps implement [`FromJs`] trait for classes
     fn from_js_ref<'js>(ctx: Ctx<'js>, value: Value<'js>) -> Result<&'js Self>
     where
-        Self: Sized,
+        Self: Sized + DeepSizeOf,
     {
         let value = Object::from_js(ctx, value)?;
         Class::<Self>::try_ref(ctx, &value)
@@ -132,7 +133,7 @@ pub trait ClassDef {
 
     fn from_js_ref_mut<'js>(ctx: Ctx<'js>, value: Value<'js>) -> Result<&'js mut Self> 
     where
-        Self: Sized
+        Self: Sized + DeepSizeOf
     {
         let mut value = Object::from_js(ctx, value)?;
         Class::<Self>::try_ref_mut(ctx, &mut value)
@@ -141,7 +142,7 @@ pub trait ClassDef {
     /// Get an instance of class from JS object
     fn from_js_obj<'js>(ctx: Ctx<'js>, value: Value<'js>) -> Result<Self>
     where
-        Self: Clone + Sized,
+        Self: Clone + Sized + DeepSizeOf,
     {
         let value = Object::from_js(ctx, value)?;
         let instance = Class::<Self>::try_ref(ctx, &value)?;
@@ -239,7 +240,7 @@ impl<'js, C> AsRef<Value<'js>> for Class<'js, C> {
 
 impl<'js, C> AsRef<C> for Class<'js, C>
 where
-    C: ClassDef,
+    C: ClassDef + DeepSizeOf,
 {
     fn as_ref(&self) -> &C {
         let obj = &self.0;
@@ -249,7 +250,7 @@ where
 
 impl<'js, C> Class<'js, C>
 where
-    C: ClassDef,
+    C: ClassDef + DeepSizeOf,
 {
     /// Get an integer class identifier
     #[inline(always)]
@@ -275,6 +276,8 @@ where
     pub fn instance(ctx: Ctx<'js>, value: C) -> Result<Class<'js, C>> {
         let val =
             unsafe { handle_exception(ctx, qjs::JS_NewObjectClass(ctx.ctx, Self::id() as _)) }?;
+		#[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
+		ctx.inc_malloc_size(value.deep_size_of());
         let ptr = Box::into_raw(Box::new(value));
         unsafe { qjs::JS_SetOpaque(val, ptr as _) };
         Ok(Self(
@@ -291,6 +294,8 @@ where
                 qjs::JS_NewObjectProtoClass(ctx.ctx, proto.0.as_js_value(), Self::id()),
             )
         }?;
+		#[cfg(feature = "quickjs-libc")]
+		ctx.inc_malloc_size(value.deep_size_of());
         let ptr = Box::into_raw(Box::new(value));
         unsafe { qjs::JS_SetOpaque(val, ptr as _) };
         Ok(Self(
@@ -427,11 +432,16 @@ where
         inst.mark_refs(&marker);
     }
 
-    unsafe extern "C" fn finalizer(_rt: *mut qjs::JSRuntime, val: qjs::JSValue) {
+    unsafe extern "C" fn finalizer(rt: *mut qjs::JSRuntime, val: qjs::JSValue) {
         let ptr = qjs::JS_GetOpaque(val, Self::id()) as *mut C;
         debug_assert!(!ptr.is_null());
         // qjs::JS_FreeValueRT(rt, val);
         let inst = Box::from_raw(ptr);
+		#[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
+		{
+			let inst_ref = inst.as_ref();
+			qjs::JS_DecMallocSize(rt, inst_ref.deep_size_of() as _);
+		}
         mem::drop(inst);
     }
 }
@@ -439,14 +449,14 @@ where
 impl<'js> Object<'js> {
     /// Check the object for instance of
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "classes")))]
-    pub fn instance_of<C: ClassDef>(&self) -> bool {
+    pub fn instance_of<C: ClassDef + DeepSizeOf>(&self) -> bool {
         let ptr = unsafe { qjs::JS_GetOpaque2(self.0.ctx.ctx, self.0.value, Class::<C>::id()) };
         !ptr.is_null()
     }
 
     /// Convert object into instance of class
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "classes")))]
-    pub fn into_instance<C: ClassDef>(self) -> Option<Class<'js, C>> {
+    pub fn into_instance<C: ClassDef + DeepSizeOf>(self) -> Option<Class<'js, C>> {
         if self.instance_of::<C>() {
             Some(Class(self, PhantomData))
         } else {
@@ -466,7 +476,7 @@ where
 
 impl<'js, C> FromJs<'js> for Class<'js, C>
 where
-    C: ClassDef,
+    C: ClassDef + DeepSizeOf,
 {
     fn from_js(ctx: Ctx<'js>, value: Value<'js>) -> Result<Self> {
         let value = Object::from_js(ctx, value)?;
@@ -502,7 +512,7 @@ pub struct WithProto<'js, C>(pub C, pub Object<'js>);
 
 impl<'js, C> IntoJs<'js> for WithProto<'js, C>
 where
-    C: ClassDef + IntoJs<'js>,
+    C: ClassDef + IntoJs<'js> + DeepSizeOf,
 {
     fn into_js(self, ctx: Ctx<'js>) -> Result<Value<'js>> {
         Class::<C>::instance_proto(ctx, self.0, self.1).map(|Class(Object(val), _)| val)

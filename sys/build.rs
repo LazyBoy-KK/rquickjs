@@ -63,12 +63,13 @@ fn main() {
     ];
 
     if env::var("CARGO_FEATURE_QUICKJS_LIBC").is_ok() {
-        defines.push(("CONFIG_WASM".into(), None))
+        defines.push(("CONFIG_WASM".into(), None));
+		if env::var("CARGO_FEATURE_ALLOCATOR").is_ok() {
+			defines.push(("CONFIG_CUSTOM_ALLOCATOR".into(), None));
+		}
     }
 
-    if env::var("CARGO_FEATURE_QUICKJS_LIBC_TEST").is_ok() {
-        defines.push(("CONFIG_TEST".into(), None))
-    }
+	defines.push(("CONFIG_BENCHMARK".into(), None));
 
     for feature in &features {
         if feature.starts_with("dump-") && env::var(feature_to_cargo(feature)).is_ok() {
@@ -98,7 +99,9 @@ fn main() {
         builder.file(out_dir.join(src));
     }
 
-    builder.compile("libquickjs.a");
+    builder
+		.compiler("clang-18")
+		.compile("libquickjs.a");
 }
 
 fn feature_to_cargo(name: impl AsRef<str>) -> String {

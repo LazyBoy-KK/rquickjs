@@ -16,6 +16,9 @@ mod async_executor;
 #[cfg(any(feature = "futures", feature = "quickjs-libc"))]
 pub use self::async_executor::*;
 
+#[cfg(all(feature = "quickjs-libc", feature = "loader"))]
+use crate::loader::QuickjsLoader;
+
 #[cfg(feature = "registery")]
 use crate::RegisteryKey;
 #[cfg(feature = "registery")]
@@ -24,7 +27,7 @@ use fxhash::FxHashSet as HashSet;
 pub use qjs::JSMemoryUsage as MemoryUsage;
 
 #[cfg(feature = "allocator")]
-use crate::allocator::AllocatorHolder;
+use crate::allocator::{AllocatorHolder, Allocator};
 
 #[cfg(feature = "loader")]
 use crate::{loader::LoaderHolder, Loader, Resolver};
@@ -62,6 +65,13 @@ pub struct Opaque {
     pub async_ctx: Option<AsyncCtx>,
 }
 
+#[cfg(feature = "quickjs-libc")]
+impl crate::DeepSizeOf for Opaque {
+	fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
+		self.async_ctx.deep_size_of_children(context)
+	}
+}
+
 impl Opaque {
     fn new(runtime: &Runtime) -> Self {
         Opaque {
@@ -79,20 +89,30 @@ impl Opaque {
 
     /// init runtime and opaque for module
     #[cfg(feature = "quickjs-libc")]
-    pub(crate) unsafe fn init_raw(rt: *mut qjs::JSRuntime) {
+    pub(crate) unsafe fn init_raw(
+		rt: *mut qjs::JSRuntime, 
+		#[cfg(feature = "allocator")]
+		allocator: Option<AllocatorHolder>, 
+		need_drop: bool
+	) {
+    use deepsize::DeepSizeOf;
+
         let runtime = Runtime {
             inner: Ref::new(Mut::new(Inner {
                 rt,
                 info: None,
-                #[cfg(feature = "allocator")]
-                allocator: None,
+                #[cfg(all(feature = "allocator", not(feature = "quickjs-libc"), not(feature = "quickjs-libc-test")))]
+                allocator,
+				#[cfg(all(feature = "allocator", any(feature = "quickjs-libc-test", feature = "quickjs-libc")))]
+				allocator: allocator.map_or(vec![], |elem| vec![elem]),
                 #[cfg(feature = "loader")]
                 loader: None,
                 #[cfg(feature = "quickjs-libc")]
-                need_drop: false,
+                need_drop,
             })),
         };
         let opaque = Opaque::new(&runtime);
+		qjs::JS_IncMallocSize(rt, (size_of::<Runtime>() + opaque.deep_size_of()) as u64);
         let opaque = Box::leak(Box::new((opaque, runtime)));
         qjs::JS_SetRustRuntimeOpaque(rt, opaque as *mut (_, _) as *mut _);
         opaque.1.init_exec_in_thread(rt);
@@ -107,11 +127,17 @@ impl Opaque {
 #[cfg(feature = "quickjs-libc")]
 #[no_mangle]
 unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
-    let opaque = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
+	use deepsize::DeepSizeOf;
+    let opaque: *mut (Opaque, Runtime) = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
     let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
-    let async_ctx = opaque.0.take_async_ctx();
-    if let Some(async_ctx) = async_ctx {
-        async_ctx.join_handle();
+	qjs::JS_DecMallocSize(rt, (size_of::<Runtime>() + opaque.0.deep_size_of()) as u64);
+	let async_ctx = opaque.0.take_async_ctx();
+    if let Some(mut async_ctx) = async_ctx {
+        let handle = async_ctx.take_thread_handle();
+		drop(async_ctx);
+		if let Some(handle) = handle {
+			handle.join().unwrap();
+		}
     }
 }
 
@@ -126,6 +152,58 @@ unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) -> i32 {
     res
 }
 
+#[cfg(feature = "quickjs-libc")]
+#[no_mangle]
+unsafe extern "C" fn JS_RustNewRuntime() -> *mut qjs::JSRuntime {
+	#[cfg(all(not(feature = "quickjs-libc-test"), not(feature = "allocator")))]
+	{ 
+		let rt = qjs::JS_NewRuntime();
+		if !rt.is_null() {
+			qjs::js_std_init_handlers(rt);
+			Runtime::init_opaque(rt, false);
+		}
+		rt
+	}
+	#[cfg(all(not(feature = "quickjs-libc-test"), feature = "allocator"))]
+	{
+		crate::allocator::set_is_main_runtime(false);
+		let allocator = AllocatorHolder::new(crate::allocator::QuickjsWasmAllocator::new());
+		let functions = AllocatorHolder::functions::<crate::allocator::QuickjsWasmAllocator>();
+        let opaque = allocator.opaque_ptr();
+		let rt = qjs::JS_NewRuntime2(&functions, opaque as _);
+		// free by JS_FreeMallocOpaque
+		std::mem::forget(allocator);
+		if !rt.is_null() {
+			qjs::js_std_init_handlers(rt);
+			Runtime::init_opaque(rt, None, false);
+		}
+		rt
+	}
+	#[cfg(feature = "quickjs-libc-test")]
+	{
+		let allocator = AllocatorHolder::new(crate::allocator::RustAllocator);
+		let functions = AllocatorHolder::functions::<crate::allocator::RustAllocator>();
+        let opaque = allocator.opaque_ptr();
+		let rt = qjs::JS_NewRuntime2(&functions, opaque as _);
+		// free by JS_FreeMallocOpaque
+		std::mem::forget(allocator);
+		if !rt.is_null() {
+			qjs::js_std_init_handlers(rt);
+			Runtime::init_opaque(rt, None, false);
+		}
+		rt
+	}
+}
+
+#[cfg(feature = "quickjs-libc")]
+#[no_mangle]
+unsafe extern "C" fn JS_FreeMallocOpaque(opaque: *mut qjs::c_void) {
+	#[cfg(feature = "allocator")]
+	if !opaque.is_null() {
+		let _ = unsafe { Box::from_raw(opaque as *mut Box<dyn Allocator>) };
+	}
+}
+
 pub(crate) struct Inner {
     pub(crate) rt: *mut qjs::JSRuntime,
 
@@ -133,13 +211,21 @@ pub(crate) struct Inner {
     #[allow(dead_code)]
     info: Option<CString>,
 
-    #[cfg(feature = "allocator")]
+    #[cfg(all(feature = "allocator", not(feature = "quickjs-libc"), not(feature = "quickjs-libc-test")))]
     #[allow(dead_code)]
     allocator: Option<AllocatorHolder>,
 
-    #[cfg(feature = "loader")]
+	#[cfg(all(feature = "allocator", any(feature = "quickjs-libc-test", feature = "quickjs-libc")))]
+    #[allow(dead_code)]
+    allocator: Vec<AllocatorHolder>,
+
+    #[cfg(all(feature = "loader", not(feature = "quickjs-libc")))]
     #[allow(dead_code)]
     loader: Option<LoaderHolder>,
+
+	#[cfg(all(feature = "loader", feature = "quickjs-libc"))]
+    #[allow(dead_code)]
+    loader: Option<Box<dyn QuickjsLoader>>,
 
     #[cfg(feature = "quickjs-libc")]
     need_drop: bool,
@@ -233,13 +319,21 @@ impl Runtime {
     /// # Features
     /// *If the `"rust-alloc"` feature is enabled the Rust's global allocator will be used in favor of libc's one.*
     pub fn new() -> Result<Self> {
-        #[cfg(not(feature = "rust-alloc"))]
+		#[cfg(feature = "quickjs-libc-test")]
+		{
+			Self::new_with_alloc(crate::allocator::RustAllocator)
+		}
+		#[cfg(all(not(feature = "quickjs-libc-test"), feature = "allocator"))]
+		{
+			Self::new_with_alloc(crate::allocator::QuickjsWasmAllocator::new())
+		}
+        #[cfg(all(not(feature = "rust-alloc"), not(feature = "quickjs-libc-test"), not(feature = "allocator")))]
         {
-            Self::new_raw(
-                unsafe { qjs::JS_NewRuntime() },
-                #[cfg(feature = "allocator")]
-                None,
-            )
+			Self::new_raw(
+				unsafe { qjs::JS_NewRuntime() },
+				#[cfg(feature = "allocator")]
+				None,
+			)
         }
         #[cfg(feature = "rust-alloc")]
         Self::new_with_alloc(crate::RustAllocator)
@@ -250,7 +344,6 @@ impl Runtime {
     ///
     /// Will generally only fail if not enough memory was available.
     #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "allocator")))]
-    #[cfg(not(feature = "quickjs-libc"))]
     pub fn new_with_alloc<A>(allocator: A) -> Result<Self>
     where
         A: Allocator + 'static,
@@ -307,8 +400,10 @@ impl Runtime {
             inner: Ref::new(Mut::new(Inner {
                 rt,
                 info: None,
-                #[cfg(feature = "allocator")]
+                #[cfg(all(feature = "allocator", not(feature = "quickjs-libc"), not(feature = "quickjs-libc-test")))]
                 allocator,
+				#[cfg(all(feature = "allocator", any(feature = "quickjs-libc-test", feature = "quickjs-libc")))]
+				allocator: allocator.map_or(vec![], |elem| vec![elem]),
                 #[cfg(feature = "loader")]
                 loader: None,
                 #[cfg(feature = "quickjs-libc")]
@@ -316,19 +411,15 @@ impl Runtime {
             })),
         };
 
+		// WARNING: quickjs Runtime中保留的Runtime指针必须另行创建，不可使用此处创建的Runtime
+		// 否则会导致Opaque和Runtime结构体之间的循环引用
         unsafe { 
-            qjs::js_std_set_worker_new_context_func(Some(qjs::JS_NewCustomContext));
+			qjs::js_std_set_worker_new_context_func(Some(qjs::JS_NewCustomContext));
             qjs::js_std_init_handlers(rt);
+			Runtime::init_opaque(rt, #[cfg(feature = "allocator")]None, false);
         }
 
         Ok(runtime)
-    }
-
-    #[cfg(feature = "quickjs-libc")]
-    pub unsafe fn drop_manually(self) {
-        let guard = self.inner.lock();
-        qjs::JS_DropRustRuntime(guard.rt);
-        mem::drop(guard);
     }
 
     /// Get weak ref to runtime
@@ -337,9 +428,20 @@ impl Runtime {
     }
 
     #[cfg(feature = "quickjs-libc")]
-    pub unsafe fn init_opaque(rt: *mut qjs::JSRuntime) {
-        Opaque::init_raw(rt);
+    pub unsafe fn init_opaque(
+		rt: *mut qjs::JSRuntime, 
+		#[cfg(feature = "allocator")]
+		allocator: Option<AllocatorHolder>, 
+		need_drop: bool
+	) {
+        Opaque::init_raw(rt, #[cfg(feature = "allocator")]allocator, need_drop);
     }
+
+	#[cfg(all(feature = "quickjs-libc", feature = "allocator"))]
+	pub(crate) fn add_allocator(&mut self, allocator: AllocatorHolder) {
+		let mut inner = self.inner.lock();
+		inner.allocator.push(allocator);
+	}
 
     /// Set a closure which is regularly called by the engine when it is executing code.
     /// If the provided closure returns `true` the interpreter will raise and uncatchable
@@ -387,10 +489,23 @@ impl Runtime {
         L: Loader + 'static,
     {
         let mut guard = self.inner.lock();
+		#[cfg(feature = "quickjs-libc")]
+		let loader = Box::new(LoaderHolder::new(resolver, loader));
+		#[cfg(not(feature = "quickjs-libc"))]
         let loader = LoaderHolder::new(resolver, loader);
         loader.set_to_runtime(guard.rt);
         guard.loader = Some(loader);
     }
+
+	#[cfg(all(feature = "quickjs-libc", feature = "loader"))]
+	pub fn set_only_loader<L: Loader + 'static>(&self, loader: L) {
+    	use crate::loader::QuickjsWasmLoaderHolder;
+
+		let mut guard = self.inner.lock();
+        let loader = Box::new(QuickjsWasmLoaderHolder::new(loader));
+        loader.set_to_runtime(guard.rt);
+        guard.loader = Some(loader);
+	}
 
     /// Set the info of the runtime
     pub fn set_info<S: Into<Vec<u8>>>(&self, info: S) -> Result<()> {

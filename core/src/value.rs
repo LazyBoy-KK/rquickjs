@@ -694,6 +694,10 @@ impl SendSyncJsValue {
         Self(Persistent::save(ctx, value))
     }
 
+	pub fn from_persist(value: Persistent<Value<'static>>) -> Self {
+		Self(value)
+	}
+
     pub fn into_inner(self, ctx: Ctx) -> Result<Value> {
         self.0.restore(ctx)
     }

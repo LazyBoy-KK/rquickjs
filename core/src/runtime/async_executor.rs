@@ -34,9 +34,6 @@ use std::{
     cell::UnsafeCell
 };
 
-#[cfg(feature = "quickjs-libc-test")]
-use libc::{sched_get_priority_max, sched_param, sched_setscheduler, SCHED_FIFO};
-
 #[cfg(not(feature = "quickjs-libc"))]
 #[cfg(feature = "parallel")]
 use async_task::spawn as spawn_task;
@@ -267,16 +264,97 @@ impl ThreadRustTaskExecutor {
 }
 
 #[cfg(feature = "quickjs-libc")]
-pub struct AsyncCtx {
-    rt: *mut qjs::JSRuntime,
-    rust_exec: Option<ThreadRustTaskExecutor>,
-    pub spawner: ThreadTaskSpawner,
-    js_exec: ThreadJsTaskExecutor,
-    wasm_thread: Option<std::thread::JoinHandle<()>>,
+#[derive(Clone)]
+pub struct AsyncCtx(Arc<UnsafeCell<AsyncCtxInner>>);
+
+#[cfg(feature = "quickjs-libc")]
+impl crate::DeepSizeOf for AsyncCtx {
+	fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
+		self.inner().deep_size_of_children(context)
+	}
 }
 
 #[cfg(feature = "quickjs-libc")]
 impl AsyncCtx {
+	fn inner(&self) -> &mut AsyncCtxInner {
+		unsafe { &mut *self.0.get() }
+	}
+
+	pub(crate) fn new(rt: *mut qjs::JSRuntime) -> Self {
+        Self(Arc::new(UnsafeCell::new(AsyncCtxInner::new(rt))))
+    }
+
+    pub fn spawn_wasm_task(
+        &mut self, 
+        ctx: crate::SendSyncContext, 
+        func: Option<Box<dyn FnOnce() -> Result<Box<dyn Any + Send + 'static>> + Send + 'static>>,
+        promise_func: impl FnOnce(WasmMessageCtx, Option<Result<Box<dyn Any + Send + 'static>>>) + 'static,
+        resolve: SendSyncJsValue,
+        reject: SendSyncJsValue,
+        new_task: bool
+    ) {
+        self.inner().spawn_wasm_task(ctx, self.clone(), func, promise_func, resolve, reject, new_task);
+    }
+
+    pub fn spawn_js_task(
+        &mut self, 
+        ctx: crate::SendSyncContext, 
+        func: Option<Box<dyn FnOnce(&JsMessageCtx) -> Result<Box<dyn Any + 'static>> + 'static>>,
+        promise_func: impl FnOnce(JsMessageCtx, Option<Result<Box<dyn Any + 'static>>>) + 'static,
+        resolve: SendSyncJsValue,
+        reject: SendSyncJsValue,
+        new_task: bool
+    ) {
+        self.inner().spawn_js_task(ctx, self.clone(), func, promise_func, resolve, reject, new_task);
+    }
+
+    pub fn spawn_import_js_task<F>(&self, future: F, new_task: bool) -> async_task::Task<<F as Future>::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static
+    {
+        self.inner().spawn_import_js_task(future, new_task)
+    }
+
+	pub(crate) fn run_js_single_task(&mut self) -> i32 {
+        self.inner().run_js_single_task()
+    }
+
+    pub fn has_created_thread(&self) -> bool {
+        self.inner().wasm_thread.is_some()
+    }
+
+    pub fn is_main_thread(&self) -> bool {
+        if let Some(handle) = &self.inner().wasm_thread {
+            handle.thread().id() != std::thread::current().id()
+        } else {
+            true
+        }
+    }
+
+	pub fn take_thread_handle(&mut self) -> Option<std::thread::JoinHandle<()>> {
+		self.inner().wasm_thread.take()
+	}
+}
+
+#[cfg(feature = "quickjs-libc")]
+pub struct AsyncCtxInner {
+	rt: *mut qjs::JSRuntime,
+	rust_exec: Option<ThreadRustTaskExecutor>,
+	pub spawner: ThreadTaskSpawner,
+	js_exec: ThreadJsTaskExecutor,
+	wasm_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(feature = "quickjs-libc")]
+impl crate::DeepSizeOf for AsyncCtxInner {
+	fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
+		size_of::<VecDeque<JsFuncMessage>>() + size_of::<Vec<Runnable>>() + size_of::<AtomicI32>()
+	}
+}
+
+#[cfg(feature = "quickjs-libc")]
+impl AsyncCtxInner {
     pub(crate) fn new(rt: *mut qjs::JSRuntime) -> Self {
         let js_task_tx = Arc::new(UnsafeCell::new(VecDeque::with_capacity(100)));
         let js_task_rx = js_task_tx.clone();
@@ -293,8 +371,7 @@ impl AsyncCtx {
             wasm_tasks: wasm_task_tx,
             import_js_task: import_js_task_tx,
             total: total.clone(),
-
-            mutex: mutex.clone()
+            mutex: Arc::clone(&mutex),
         };
 
         let rust_exec = ThreadRustTaskExecutor {
@@ -306,7 +383,6 @@ impl AsyncCtx {
             js_tasks: js_task_rx,
             import_js_task: import_js_task_rx,
             total,
-
             mutex
         };
 
@@ -320,21 +396,18 @@ impl AsyncCtx {
     }
 
     // spawn_thread will be called only once
-    fn spawn_thread(&mut self, rt: *mut qjs::JSRuntime) {
-        let pipe = unsafe { qjs::JS_CreateRustMessagePipe(rt) };
+    fn spawn_thread(&mut self) {
+        let pipe = unsafe { qjs::JS_CreateRustMessagePipe(self.rt) };
         if pipe.is_null() {
             panic!("failed creating rust message pipe");
         }
         let pipe = RustMsgPipe(pipe);
         let mut executor = self.rust_exec.take().unwrap();
+		#[cfg(all(feature = "quickjs-libc", feature = "allocator", not(feature = "quickjs-libc-test")))]
+		let is_main_runtime = crate::allocator::is_main_runtime();
         let handle = std::thread::spawn(move || {
-            #[cfg(feature = "quickjs-libc-test")]
-            unsafe {
-                let param = sched_param {
-                    sched_priority: sched_get_priority_max(SCHED_FIFO)
-                };
-                sched_setscheduler(0, SCHED_FIFO, &param);
-            }
+			#[cfg(all(feature = "quickjs-libc", feature = "allocator", not(feature = "quickjs-libc-test")))]
+			crate::allocator::set_is_main_runtime(is_main_runtime);
             executor.run();
         });
         self.spawner.pipe = Some(pipe.clone());
@@ -344,7 +417,8 @@ impl AsyncCtx {
 
     pub fn spawn_wasm_task(
         &mut self, 
-        ctx: crate::Context, 
+        ctx: crate::SendSyncContext, 
+		async_ctx: AsyncCtx,
         func: Option<Box<dyn FnOnce() -> Result<Box<dyn Any + Send + 'static>> + Send + 'static>>,
         promise_func: impl FnOnce(WasmMessageCtx, Option<Result<Box<dyn Any + Send + 'static>>>) + 'static,
         resolve: SendSyncJsValue,
@@ -352,12 +426,10 @@ impl AsyncCtx {
         new_task: bool
     ) {
         if self.wasm_thread.is_none() {
-            self.spawn_thread(self.rt);
+            self.spawn_thread();
         }
-        let async_ctx = ctx.async_ctx_mut() as *mut AsyncCtx;
-        let send_sync_ctx = SendSyncContext::new(ctx);
         self.spawner.spawn_wasm_task(
-            send_sync_ctx,
+            ctx,
             async_ctx,
             func, 
             Box::new(promise_func),
@@ -369,17 +441,16 @@ impl AsyncCtx {
 
     pub fn spawn_js_task(
         &mut self, 
-        ctx: crate::Context, 
+        ctx: crate::SendSyncContext, 
+		async_ctx: AsyncCtx,
         func: Option<Box<dyn FnOnce(&JsMessageCtx) -> Result<Box<dyn Any + 'static>> + 'static>>,
         promise_func: impl FnOnce(JsMessageCtx, Option<Result<Box<dyn Any + 'static>>>) + 'static,
         resolve: SendSyncJsValue,
         reject: SendSyncJsValue,
         new_task: bool
     ) {
-        let async_ctx = ctx.async_ctx_mut() as *mut AsyncCtx;
-        let send_sync_ctx = SendSyncContext::new(ctx);
         self.spawner.spawn_js_task(
-            send_sync_ctx, 
+            ctx, 
             async_ctx,
             func, 
             Box::new(promise_func),
@@ -401,24 +472,24 @@ impl AsyncCtx {
         self.js_exec.run()
     }
 
-    pub fn has_created_thread(&self) -> bool {
-        self.wasm_thread.is_some()
-    }
+    // pub fn has_created_thread(&self) -> bool {
+    //     self.wasm_thread.is_some()
+    // }
 
-    pub fn is_main_thread(&self) -> bool {
-        if let Some(handle) = &self.wasm_thread {
-            handle.thread().id() != std::thread::current().id()
-        } else {
-            true
-        }
-    }
+    // pub fn is_main_thread(&self) -> bool {
+    //     if let Some(handle) = &self.wasm_thread {
+    //         handle.thread().id() != std::thread::current().id()
+    //     } else {
+    //         true
+    //     }
+    // }
 
-    pub(crate) fn join_handle(mut self) {
-        drop(self.spawner);
-        if let Some(handle) = self.wasm_thread.take() {
-            handle.join().unwrap();
-        }
-    }
+    // pub(crate) fn join_handle(mut self) {
+    //     drop(self.spawner);
+    //     if let Some(handle) = self.wasm_thread.take() {
+    //         handle.join().unwrap();
+    //     }
+    // }
 }
 
 #[cfg(feature = "quickjs-libc")]
@@ -436,7 +507,7 @@ impl ThreadTaskSpawner {
     pub fn spawn_wasm_task(
         &self, 
         ctx: SendSyncContext, 
-        async_ctx: *mut AsyncCtx,
+        async_ctx: AsyncCtx,
         func: Option<Box<dyn FnOnce() -> Result<Box<dyn Any + Send + 'static>> + Send + 'static>>,
         promise_func: Box<dyn FnOnce(WasmMessageCtx, Option<Result<Box<dyn Any + Send + 'static>>>)>,
         resolve: SendSyncJsValue,
@@ -457,7 +528,7 @@ impl ThreadTaskSpawner {
     pub fn spawn_js_task(
         &self, 
         ctx: SendSyncContext, 
-        async_ctx: *mut AsyncCtx,
+        async_ctx: AsyncCtx,
         func: Option<Box<dyn FnOnce(&JsMessageCtx) -> Result<Box<dyn Any + 'static>> + 'static>>,
         promise_func: Box<dyn FnOnce(JsMessageCtx, Option<Result<Box<dyn Any + 'static>>>)>,
         resolve: SendSyncJsValue,
@@ -517,7 +588,7 @@ impl ThreadTaskSpawner {
 
     pub fn write_js_pipe(&self) {
         let pipe = self.pipe.as_ref().unwrap();
-        unsafe { qjs::JS_WriteRustMessagePipe(pipe.0); }
+		unsafe { qjs::JS_WriteRustMessagePipe(pipe.0); }
     }
 
     fn get_js_task_mut(&self) -> &mut VecDeque<JsFuncMessage> {
