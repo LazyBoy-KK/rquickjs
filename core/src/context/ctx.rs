@@ -294,27 +294,14 @@ impl<'js> Ctx<'js> {
         opaque.get_spawner().spawn(future);
     }
 
-    // #[cfg(feature = "quickjs-libc")]
-    // #[cfg(feature = "futures")]
-    // pub fn spawn<F>(&self, future: F)
-    // where
-    //     F: Future + 'static,
-    //     F::Output: Send + 'static,
-    // {
-    //     let opaque = unsafe { self.get_opaque() };
-    //     let async_ctx = opaque.get_async_ctx();
-    //     let task = async_ctx.spawn_js_task(future);
-    //     task.detach();
-    // }
-
     #[cfg(feature = "quickjs-libc")]
-    pub fn async_ctx_mut(&self) -> &mut AsyncCtx {
+    pub(crate) fn async_ctx_mut(&self) -> &mut AsyncCtx {
         let opaque = unsafe { self.get_opaque() };
         opaque.get_async_ctx_mut()
     }
 
     #[cfg(feature = "quickjs-libc")]
-    pub fn async_ctx(&self) -> &AsyncCtx {
+    pub(crate) fn async_ctx(&self) -> &AsyncCtx {
         let opaque = unsafe { self.get_opaque() };
         opaque.get_async_ctx()
     }

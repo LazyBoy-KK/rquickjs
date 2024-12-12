@@ -69,7 +69,7 @@ fn main() {
 		}
     }
 
-	defines.push(("CONFIG_BENCHMARK".into(), None));
+	// defines.push(("CONFIG_BENCHMARK".into(), None));
 
     for feature in &features {
         if feature.starts_with("dump-") && env::var(feature_to_cargo(feature)).is_ok() {

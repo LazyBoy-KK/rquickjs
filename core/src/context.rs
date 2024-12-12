@@ -1,10 +1,10 @@
 use crate::{qjs, Error, Result, Runtime};
 #[cfg(feature = "quickjs-libc")]
-use crate::{AsyncCtx, IntoJs, SendSyncJsValue};
+use crate::{AsyncCtx, runtime::TotalRefCount, IntoJs, SendSyncJsValue};
 use std::mem;
 
 #[cfg(feature = "quickjs-libc")]
-use std::{any::Any, sync::{Arc, atomic::AtomicI32}, ffi::CString};
+use std::{any::Any, sync::Arc, ffi::CString};
 
 mod builder;
 pub use builder::{intrinsic, ContextBuilder, Intrinsic};
@@ -96,7 +96,7 @@ impl Context {
         Ok(res)
     }
 
-    /// Creates a context with all standart available intrinsics registered 
+    /// Creates a context with all standard available intrinsics registered 
     /// and quickjs-libc.
     #[cfg(feature = "quickjs-libc")]
     pub fn full_with_libc(runtime: &Runtime, args: Option<Vec<CString>>) -> Result<Self> {
@@ -304,9 +304,10 @@ impl ContextWrapper {
 pub struct JsMessageCtx {
     ctx: SendSyncContext,
     async_ctx: AsyncCtx,
+	sender: crate::runtime::WasmSender,
     resolve: SendSyncJsValue,
     reject: SendSyncJsValue,
-    total: Arc<AtomicI32>,
+	total: TotalRefCount,
 }
 
 #[cfg(feature = "quickjs-libc")]
@@ -314,16 +315,18 @@ impl JsMessageCtx {
     pub(crate) fn new(
         ctx: SendSyncContext, 
         async_ctx: AsyncCtx,
+		sender: crate::runtime::WasmSender,
         resolve: SendSyncJsValue,
         reject: SendSyncJsValue,
-        total: Arc<AtomicI32>
+		total: TotalRefCount
     ) -> Self {
         Self {
             ctx,
             async_ctx,
+			sender,
             resolve,
             reject,
-            total
+			total
         }
     }
 
@@ -335,32 +338,36 @@ impl JsMessageCtx {
     where
         T: IntoJs<'js>
     {
+		// 任务计数器必须在调用resolve、reject时修改
+		// 在执行js任务时修改是错误的!!!执行完当前js任务后可能需要执行其他任务
+		// 此时该任务的生命周期没有结束
+		self.total.dec();
         let context = self.ctx.into_inner();
         let ctx = Ctx::new(unsafe { std::mem::transmute(&context) });
         let resolve = self.resolve.into_inner(ctx).unwrap();
         let resolve = resolve.into_function().unwrap();
         let value = res.into_js(ctx).unwrap();
         resolve.call::<_, crate::Value>((value, )).unwrap();
-        self.total.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn reject(self, err: crate::Error) {
+		self.total.dec();
         let context = self.ctx.into_inner();
         let ctx = Ctx::new(&context);
         let reject = self.reject.into_inner(ctx).unwrap();
         let reject = reject.into_function().unwrap();
         let value = err.into_js(ctx).unwrap();
         reject.call::<_, crate::Value>((value, )).unwrap();
-        self.total.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn spawn_wasm_task(
         mut self, 
         func: impl FnOnce() -> Result<Box<dyn Any + Send + 'static>> + Send + 'static,
-        promise_func: impl FnOnce(WasmMessageCtx, Option<Result<Box<dyn Any + Send + 'static>>>) + 'static,
+        promise_func: impl FnOnce(WasmMessageCtx, Option<Result<Box<dyn Any + Send + 'static>>>) + Send + 'static,
     ) {
         self.async_ctx.spawn_wasm_task(
             self.ctx, 
+			self.sender,
             Some(Box::new(func)), 
             Box::new(promise_func),
             self.resolve, 
@@ -374,6 +381,7 @@ impl JsMessageCtx {
 pub struct WasmMessageCtx {
     ctx: SendSyncContext,
     async_ctx: AsyncCtx,
+	sender: crate::runtime::WasmSender,
     resolve: SendSyncJsValue,
     reject: SendSyncJsValue,
 }
@@ -389,12 +397,14 @@ impl WasmMessageCtx {
     pub(crate) fn new(
         ctx: SendSyncContext,
         async_ctx: AsyncCtx,
+		sender: crate::runtime::WasmSender,
         resolve: SendSyncJsValue,
         reject: SendSyncJsValue,
     ) -> Self {
         Self {
             ctx,
             async_ctx,
+			sender,
             resolve,
             reject,
         }
@@ -425,11 +435,11 @@ impl WasmMessageCtx {
     ) {
         self.async_ctx.spawn_js_task(
             self.ctx, 
+			self.sender,
             func, 
             Box::new(promise_func),
             self.resolve, 
             self.reject, 
-            false
         );
     }
 }

@@ -78,6 +78,9 @@ pub use class::{Class, ClassDef, Constructor, HasRefs, RefsMarker, WithProto, De
 #[cfg(feature = "quickjs-libc")]
 pub use class::{ErrorClass, ErrorConstructor, ErrorDef};
 
+#[cfg(feature = "quickjs-libc")]
+pub use runtime::{ImportJsFuncRes, ThreadCtx};
+
 #[cfg(feature = "properties")]
 mod property;
 #[cfg(feature = "properties")]

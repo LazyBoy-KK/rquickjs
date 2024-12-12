@@ -131,7 +131,7 @@ properties = []
 array-buffer = []
 
 # Enable quickjs-libc compatable code path
-quickjs-libc = ["rquickjs-sys/quickjs-libc", "futures-lite", "async-task", "crossbeam-channel", "pin-project-lite"]
+quickjs-libc = ["rquickjs-sys/quickjs-libc", "crossbeam-channel"]
 
 quickjs-libc-test = []
 

@@ -117,11 +117,6 @@ impl Opaque {
         qjs::JS_SetRustRuntimeOpaque(rt, opaque as *mut (_, _) as *mut _);
         opaque.1.init_exec_in_thread(rt);
     }
-
-    #[cfg(feature = "quickjs-libc")]
-    pub(crate) fn take_async_ctx(&mut self) -> Option<AsyncCtx> {
-        self.async_ctx.take()
-    }
 }
 
 #[cfg(feature = "quickjs-libc")]
@@ -129,16 +124,8 @@ impl Opaque {
 unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
 	use deepsize::DeepSizeOf;
     let opaque: *mut (Opaque, Runtime) = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
-    let mut opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
+    let opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
 	qjs::JS_DecMallocSize(rt, (size_of::<Runtime>() + opaque.0.deep_size_of()) as u64);
-	let async_ctx = opaque.0.take_async_ctx();
-    if let Some(mut async_ctx) = async_ctx {
-        let handle = async_ctx.take_thread_handle();
-		drop(async_ctx);
-		if let Some(handle) = handle {
-			handle.join().unwrap();
-		}
-    }
 }
 
 #[cfg(feature = "quickjs-libc")]
