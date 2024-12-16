@@ -166,6 +166,18 @@ where
         Ok(&opaque.class)
     }
 
+	pub unsafe fn get_mut_opaque(obj: qjs::JSValueConst) -> Result<&'js mut C> {
+        let ptr = qjs::JS_GetOpaque(obj, Self::class_id()) as *mut Self;
+        if ptr.is_null() {
+            return Err(Error::new_type_error(format!(
+                "Not a {} object",
+                C::CLASS_NAME
+            )));
+        }
+        let opaque = &mut *ptr;
+        Ok(&mut opaque.class)
+    }
+
     unsafe fn _call(
         &self,
         ctx: *mut qjs::JSContext,

@@ -47,7 +47,10 @@ pub use typed_array::TypedArray;
 #[cfg(feature = "futures")]
 pub use function::Async;
 
-use std::{fmt, marker::PhantomData, mem, ops::Deref, result::Result as StdResult, str};
+use std::{fmt, hash::Hash, marker::PhantomData, mem, ops::Deref, result::Result as StdResult, str};
+
+#[cfg(feature = "quickjs-libc")]
+use std::collections::HashMap;
 
 /// Any javascript value
 pub struct Value<'js> {
@@ -701,6 +704,32 @@ impl SendSyncJsValue {
     pub fn into_inner(self, ctx: Ctx) -> Result<Value> {
         self.0.restore(ctx)
     }
+}
+
+#[cfg(feature = "quickjs-libc")]
+// map for storing js value without reference count
+// lifetime in the map should be managed by user
+pub struct ValueMap<T>(HashMap<T, qjs::JSValueConst>);
+
+#[cfg(feature = "quickjs-libc")]
+impl<T> ValueMap<T> 
+where T: Eq + Hash
+{
+	pub fn new() -> Self {
+		Self(HashMap::new())
+	}
+
+	pub fn insert_value(&mut self, key: T, value: &Value) {
+		self.0.insert(key, value.as_js_value());
+	}
+
+	pub fn remove_value(&mut self, key: &T) {
+		self.0.remove(key);
+	}
+
+	pub unsafe fn get_value<'js>(&self, ctx: Ctx<'js>, key: &T) -> Option<Value<'js>> {
+		self.0.get(&key).map(|value| Value::from_js_value_const(ctx, *value))
+	}
 }
 
 #[cfg(test)]

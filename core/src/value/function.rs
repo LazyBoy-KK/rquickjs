@@ -80,6 +80,14 @@ impl<'js> Function<'js> {
         unsafe { JsFunctionWithClass::<C, A, R>::get_opaque(self.as_js_value()) }
     }
 
+	#[cfg(feature = "quickjs-libc")]
+    pub fn get_mut_func_opaque<C, A, R>(&self) -> Result<&'js mut C>
+    where
+        C: AsFunction<'js, A, R> + ClassDef,
+    {
+        unsafe { JsFunctionWithClass::<C, A, R>::get_mut_opaque(self.as_js_value()) }
+    }
+
     /// Set the `length` property
     pub fn set_length(&self, len: usize) -> Result<()> {
         let ctx = self.0.ctx;

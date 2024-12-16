@@ -276,8 +276,8 @@ where
     pub fn instance(ctx: Ctx<'js>, value: C) -> Result<Class<'js, C>> {
         let val =
             unsafe { handle_exception(ctx, qjs::JS_NewObjectClass(ctx.ctx, Self::id() as _)) }?;
-		#[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
-		ctx.inc_malloc_size(value.deep_size_of());
+		// #[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
+		// ctx.inc_malloc_size(value.deep_size_of());
         let ptr = Box::into_raw(Box::new(value));
         unsafe { qjs::JS_SetOpaque(val, ptr as _) };
         Ok(Self(
@@ -294,8 +294,8 @@ where
                 qjs::JS_NewObjectProtoClass(ctx.ctx, proto.0.as_js_value(), Self::id()),
             )
         }?;
-		#[cfg(feature = "quickjs-libc")]
-		ctx.inc_malloc_size(value.deep_size_of());
+		// #[cfg(feature = "quickjs-libc")]
+		// ctx.inc_malloc_size(value.deep_size_of());
         let ptr = Box::into_raw(Box::new(value));
         unsafe { qjs::JS_SetOpaque(val, ptr as _) };
         Ok(Self(
@@ -437,11 +437,11 @@ where
         debug_assert!(!ptr.is_null());
         // qjs::JS_FreeValueRT(rt, val);
         let inst = Box::from_raw(ptr);
-		#[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
-		{
-			let inst_ref = inst.as_ref();
-			qjs::JS_DecMallocSize(rt, inst_ref.deep_size_of() as _);
-		}
+		// #[cfg(all(feature = "quickjs-libc", not(feature = "allocator"), not(feature = "quickjs-libc-test")))]
+		// {
+		// 	let inst_ref = inst.as_ref();
+		// 	qjs::JS_DecMallocSize(rt, inst_ref.deep_size_of() as _);
+		// }
         mem::drop(inst);
     }
 }
