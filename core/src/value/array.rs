@@ -97,6 +97,21 @@ impl<'js> Array<'js> {
             Err(Error::new_from_js("object", "array"))
         }
     }
+
+	#[cfg(feature = "quickjs-libc")]
+	pub fn from_iter_obj(object: Object<'js>) -> Result<Self> {
+		unsafe {
+			let value = qjs::JS_ArrayFromIterObject(
+				object.0.ctx.ctx, 
+				object.0.as_js_value(),
+			);
+			if qjs::JS_IsException(value) {
+				Err(Error::new_from_js("object", "array"))
+			} else {
+				Ok(Self(Value::from_js_value(object.0.ctx, value)))
+			}
+		}
+	}
 }
 
 /// The iterator for an array
