@@ -102,7 +102,7 @@ impl QuickjsWasmLoaderHolder {
 
     #[inline]
     fn load<'js>(
-        opaque: &mut LoaderOpaque,
+        opaque: &mut QuickjsWasmLoaderOpaque,
         ctx: Ctx<'js>,
         name: &CStr,
     ) -> Result<*mut qjs::JSModuleDef> {
@@ -118,7 +118,7 @@ impl QuickjsWasmLoaderHolder {
     ) -> *mut qjs::JSModuleDef {
         let ctx = Ctx::from_ptr(ctx);
         let name = CStr::from_ptr(name);
-        let loader = &mut *(opaque as *mut LoaderOpaque);
+        let loader = &mut *(opaque as *mut QuickjsWasmLoaderOpaque);
 
         Self::load(loader, ctx, name).unwrap_or_else(|error| {
             error.throw(ctx);

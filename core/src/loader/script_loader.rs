@@ -35,11 +35,13 @@ impl Default for ScriptLoader {
 
 impl Loader<Script> for ScriptLoader {
     fn load<'js>(&mut self, ctx: Ctx<'js>, path: &str) -> Result<Module<'js, Loaded<Script>>> {
+		let mut path_str = String::from(path);
         if !check_extensions(path, &self.extensions) {
-            return Err(Error::new_loading(path));
+			path_str += ".js";
+            // return Err(Error::new_loading(path));
         }
 
-        let source: Vec<_> = std::fs::read(path)?;
-        Module::new(ctx, path, source)
+        let source: Vec<_> = std::fs::read(&path_str)?;
+        Module::new(ctx, path_str, source)
     }
 }
