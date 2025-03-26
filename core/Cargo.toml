@@ -34,8 +34,8 @@ optional = true
 version = "0.10"
 optional = true
 
-[dependencies.crossbeam-channel]
-version = "0.5"
+[dependencies.crossbeam]
+version = "0.8"
 # path = "/home/kotoba/github-code/crossbeam/crossbeam-channel"
 optional = true
 
@@ -131,7 +131,7 @@ properties = []
 array-buffer = []
 
 # Enable quickjs-libc compatable code path
-quickjs-libc = ["rquickjs-sys/quickjs-libc", "crossbeam-channel"]
+quickjs-libc = ["rquickjs-sys/quickjs-libc", "crossbeam"]
 
 quickjs-libc-test = []
 

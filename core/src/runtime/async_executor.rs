@@ -256,7 +256,7 @@ impl ThreadRustTaskExecutor {
         loop {
             match self.wasm_tasks.recv() {
                 Ok(msg) => msg.call(),
-                Err(crossbeam_channel::RecvError) => break,
+                Err(crossbeam::channel::RecvError) => break,
             }
         }
     }
@@ -276,17 +276,18 @@ pub struct ImportJsFuncRes(Arc<ImportJsResInner>);
 impl ImportJsFuncRes {
 	pub(crate) fn set(&self, res: Result<()>) {
 		unsafe {
-			*self.0.res.get() = res;
+			let ptr = &mut (*self.0.res.get());
+			*ptr = res;
 		}
-		self.0.flag.store(true, Ordering::Release);
+		self.0.flag.store(true, Ordering::Relaxed);
+	}
+
+	pub fn finished(&self) -> bool {
+		self.0.flag.load(Ordering::Acquire)
 	}
 
 	pub fn get(self) -> Option<Result<()>> {
-		if self.0.flag.load(Ordering::Acquire) {
-			Arc::into_inner(self.0).map(|e| e.res.into_inner())
-		} else {
-			None
-		}
+		Arc::into_inner(self.0).map(|e| e.res.into_inner())
 	}
 }
 
@@ -322,10 +323,10 @@ impl ImportJsFuncMessage {
 }
 
 #[cfg(feature = "quickjs-libc")]
-pub type WasmSender = crossbeam_channel::Sender<WasmFuncMessage>;
+pub type WasmSender = crossbeam::channel::Sender<WasmFuncMessage>;
 
 #[cfg(feature = "quickjs-libc")]
-pub type WasmReceiver = crossbeam_channel::Receiver<WasmFuncMessage>;
+pub type WasmReceiver = crossbeam::channel::Receiver<WasmFuncMessage>;
 
 #[cfg(feature = "quickjs-libc")]
 #[derive(Clone)]
@@ -447,6 +448,7 @@ pub struct AsyncCtxInner {
 	pub spawner: ThreadTaskSpawner,
 	js_exec: ThreadJsTaskExecutor,
 	main_thread_id: std::thread::ThreadId,
+	init: bool,
 }
 
 #[cfg(feature = "quickjs-libc")]
@@ -459,28 +461,18 @@ impl crate::DeepSizeOf for AsyncCtxInner {
 #[cfg(feature = "quickjs-libc")]
 impl AsyncCtxInner {
     pub(crate) fn new(rt: *mut qjs::JSRuntime) -> Self {
-        let js_task_tx = Arc::new(UnsafeCell::new(VecDeque::with_capacity(100)));
-        let js_task_rx = js_task_tx.clone();
-        let import_js_task_tx = Arc::new(UnsafeCell::new(VecDeque::with_capacity(1)));
-        let import_js_task_rx = import_js_task_tx.clone();
 		let total = TotalRefCount::new();
-
-        let mutex = Arc::new(std::sync::Mutex::new(false));
+		let mutex = std::sync::Mutex::new(JsTaskQueue::new());
+        let js_task_queue = Arc::new(mutex);
         
         let spawner = ThreadTaskSpawner {
-            pipe: None,
-            js_tasks: js_task_tx,
-            import_js_task: import_js_task_tx,
-            mutex: mutex.clone(),
+            js_task_queue: Arc::clone(&js_task_queue),
 			total: total.clone(),
         };
 
         let js_exec = ThreadJsTaskExecutor {
-            pipe: None,
-            js_tasks: js_task_rx,
-            import_js_task: import_js_task_rx,
             total,
-            mutex
+			js_task_queue,
         };
 
         Self {
@@ -488,6 +480,7 @@ impl AsyncCtxInner {
             spawner,
             js_exec,
             main_thread_id: std::thread::current().id(),
+			init: false,
         }
     }
 
@@ -500,7 +493,7 @@ impl AsyncCtxInner {
 	}
 
 	pub fn create_thread(&self) -> WasmSender {
-		let (sender, receiver) = crossbeam_channel::unbounded();
+		let (sender, receiver) = crossbeam::channel::unbounded();
 		let mut executor = ThreadRustTaskExecutor {
 			wasm_tasks: receiver
 		};
@@ -513,17 +506,6 @@ impl AsyncCtxInner {
         });
 		sender
 	}
-
-    // init will be called only once
-    fn init(&mut self) {
-        let pipe = unsafe { qjs::JS_CreateRustMessagePipe(self.rt) };
-        if pipe.is_null() {
-            panic!("failed creating rust message pipe");
-        }
-		let pipe = RustMsgPipe(pipe);
-        self.spawner.pipe = Some(pipe.clone());
-        self.js_exec.pipe = Some(pipe);
-    }
 
     pub fn spawn_wasm_task(
         &mut self, 
@@ -538,8 +520,11 @@ impl AsyncCtxInner {
     ) {
 		// 仅在第一次生成wasm任务时创建pipe
 		// 若js代码未生成wasm任务则不得创建pipe
-		if self.spawner.pipe.is_none() {
-			self.init();
+		if !self.init {
+			let mut queue = self.spawner.js_task_queue.lock().unwrap();
+			queue.init_pipe(self.rt);
+			drop(queue);
+			self.init = true;
 		}
         self.spawner.spawn_wasm_task(
             ctx,
@@ -587,11 +572,66 @@ impl AsyncCtxInner {
 }
 
 #[cfg(feature = "quickjs-libc")]
-pub struct ThreadTaskSpawner {
+struct JsTaskQueue {
     pipe: Option<RustMsgPipe>,
-    js_tasks: Arc<UnsafeCell<VecDeque<JsFuncMessage>>>,
-    import_js_task: Arc<UnsafeCell<VecDeque<ImportJsFuncMessage>>>,
-    mutex: Arc<std::sync::Mutex<bool>>,
+	js_tasks: VecDeque<JsFuncMessage>,
+    import_js_task: VecDeque<ImportJsFuncMessage>,
+}
+
+#[cfg(feature = "quickjs-libc")]
+impl JsTaskQueue {
+	pub fn new() -> Self {
+		Self {
+			pipe: None,
+			js_tasks: VecDeque::new(),
+			import_js_task: VecDeque::new()
+		}
+	}
+
+	// init will be called only once
+    pub fn init_pipe(&mut self, rt: *mut qjs::JSRuntime) {
+        let pipe = unsafe { qjs::JS_CreateRustMessagePipe(rt) };
+        if pipe.is_null() {
+            panic!("failed creating rust message pipe");
+        }
+		let pipe = RustMsgPipe(pipe);
+        self.pipe = Some(pipe);
+    }
+
+	pub fn add_js_task(&mut self, msg: JsFuncMessage) {
+		self.js_tasks.push_back(msg);
+	}
+
+	pub fn add_import_js_task(&mut self, msg: ImportJsFuncMessage) {
+		self.import_js_task.push_back(msg);
+	}
+
+	pub fn get_js_task(&mut self) -> Option<JsFuncMessage> {
+		self.js_tasks.pop_front()
+	}
+
+	pub fn get_import_js_task(&mut self) -> Option<ImportJsFuncMessage> {
+		self.import_js_task.pop_front()
+	}
+
+	pub fn write_js_pipe(&self) {
+        let pipe = self.pipe.as_ref().unwrap();
+		unsafe { qjs::JS_WriteRustMessagePipe(pipe.0); }
+    }
+
+	pub fn read_js_pipe(&self) {
+        let pipe = self.pipe.as_ref().unwrap();
+		unsafe { qjs::JS_ReadRustMessagePipe(pipe.0); }
+    }
+
+	pub fn is_empty(&self) -> bool {
+		self.js_tasks.is_empty() && self.import_js_task.is_empty()
+	}
+}
+
+#[cfg(feature = "quickjs-libc")]
+pub struct ThreadTaskSpawner {
+	js_task_queue: Arc<std::sync::Mutex<JsTaskQueue>>,
 	total: TotalRefCount,
 }
 
@@ -634,12 +674,12 @@ impl ThreadTaskSpawner {
             func,
             promise_func
         };
-        let guard = self.mutex.lock().unwrap();
-        if self.get_js_task_mut().is_empty() && self.get_import_js_task_mut().is_empty() {
-            self.write_js_pipe();
+        let mut queue = self.js_task_queue.lock().unwrap();
+        if queue.is_empty() {
+            queue.write_js_pipe();
         }
-        self.get_js_task_mut().push_back(msg);
-        drop(guard);
+        queue.add_js_task(msg);
+        drop(queue);
     }
 
     pub fn spawn_import_js_task<F>(&self, func: F) -> ImportJsFuncRes
@@ -649,29 +689,21 @@ impl ThreadTaskSpawner {
 		let task = ImportJsFuncMessage::new(func);
 		let res = task.result();
 
-        let guard = self.mutex.lock().unwrap();
-        if self.get_js_task_mut().is_empty() && self.get_import_js_task_mut().is_empty() {
-            self.write_js_pipe();
+        let mut queue = self.js_task_queue.lock().unwrap();
+        if queue.is_empty() {
+            queue.write_js_pipe();
         }
-        self.get_import_js_task_mut().push_back(task);
-        drop(guard);
+		queue.add_import_js_task(task);
+        drop(queue);
 
 		// waiting for result
-		std::thread::park();
+		loop {
+			std::thread::park();
+			if res.finished() {
+				break;
+			}
+		}
         res
-    }
-
-    pub fn write_js_pipe(&self) {
-        let pipe = self.pipe.as_ref().unwrap();
-		unsafe { qjs::JS_WriteRustMessagePipe(pipe.0); }
-    }
-
-    fn get_js_task_mut(&self) -> &mut VecDeque<JsFuncMessage> {
-        unsafe { &mut *self.js_tasks.get() }
-    }
-
-    fn get_import_js_task_mut(&self) -> &mut VecDeque<ImportJsFuncMessage> {
-        unsafe { &mut *self.import_js_task.get() }
     }
 }
 
@@ -690,17 +722,14 @@ impl TotalRefCount {
 		unsafe { &mut *self.0.get() }
 	}
 
-	#[inline]
 	pub fn inc(&self) {
 		*self.inner() += 1
 	}
 
-	#[inline]
 	pub fn dec(&self) {
 		*self.inner() -= 1
 	}
 
-	#[inline]
 	pub fn get(&self) -> u32 {
 		*self.inner()
 	}
@@ -708,32 +737,23 @@ impl TotalRefCount {
 
 #[cfg(feature = "quickjs-libc")]
 pub struct ThreadJsTaskExecutor {
-    pipe: Option<RustMsgPipe>,
-    js_tasks: Arc<UnsafeCell<VecDeque<JsFuncMessage>>>,
-    import_js_task: Arc<UnsafeCell<VecDeque<ImportJsFuncMessage>>>,
     total: TotalRefCount,
-    mutex: Arc<std::sync::Mutex<bool>>,
+    js_task_queue: Arc<std::sync::Mutex<JsTaskQueue>>,
 }
 
 #[cfg(feature = "quickjs-libc")]
 impl ThreadJsTaskExecutor {
     // 1 means completed, 0 means not completed
     pub fn run(&mut self) -> i32 {
-        let pipe = self.pipe.as_ref().unwrap();
-        let import_js_task = self.get_import_js_task_mut();
-        let js_task = self.get_js_task_mut();
-
-        let guard = self.mutex.lock().unwrap();
-        if import_js_task.is_empty() && js_task.is_empty() {
-            unsafe { 
-                qjs::JS_ReadRustMessagePipe(pipe.0); 
-            }
-            drop(guard);
+		let mut queue = self.js_task_queue.lock().unwrap();
+        if queue.is_empty() {
+            queue.read_js_pipe();
+            drop(queue);
             (self.total.get() <= 0) as i32
         } else {
-			let task = import_js_task.pop_front();
-            let msg = js_task.pop_front();
-            drop(guard);
+			let task = queue.get_import_js_task();
+            let msg = queue.get_js_task();
+            drop(queue);
             if let Some(task) = task {
 				task.call();
             }
@@ -742,13 +762,5 @@ impl ThreadJsTaskExecutor {
             }
             0
         }
-    }
-
-    fn get_import_js_task_mut(&self) -> &mut VecDeque<ImportJsFuncMessage> {
-        unsafe { &mut *self.import_js_task.get() }
-    }
-
-    fn get_js_task_mut(&self) -> &mut VecDeque<JsFuncMessage> {
-        unsafe { &mut *self.js_tasks.get() }
     }
 }
