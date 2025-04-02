@@ -130,11 +130,11 @@ unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
 
 #[cfg(feature = "quickjs-libc")]
 #[no_mangle]
-unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime) -> i32 {
+unsafe extern "C" fn JS_RunRustAsyncTask(rt: *mut qjs::JSRuntime, pipe: *mut qjs::JSRustMessagePipe) -> i32 {
     let opaque: &mut (Opaque, Runtime) = &mut *(qjs::JS_GetRustRuntimeOpaque(rt) as *mut _);
     let mut opaque = Box::from_raw(opaque);
     let async_ctx = opaque.0.get_async_ctx_mut();
-    let res = async_ctx.run_js_single_task();
+    let res = async_ctx.run_js_single_task(pipe as usize);
     Box::leak(opaque);
     res
 }

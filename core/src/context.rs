@@ -1,6 +1,6 @@
 use crate::{qjs, Error, Result, Runtime};
 #[cfg(feature = "quickjs-libc")]
-use crate::{AsyncCtx, runtime::TotalRefCount, IntoJs, SendSyncJsValue};
+use crate::{AsyncCtx, runtime::{TotalRefCount, JsTaskQueue}, IntoJs, SendSyncJsValue};
 use std::mem;
 
 #[cfg(feature = "quickjs-libc")]
@@ -305,6 +305,7 @@ pub struct JsMessageCtx {
     ctx: SendSyncContext,
     async_ctx: AsyncCtx,
 	sender: crate::runtime::WasmSender,
+	js_task_queue: JsTaskQueue,
     resolve: SendSyncJsValue,
     reject: SendSyncJsValue,
 	total: TotalRefCount,
@@ -316,6 +317,7 @@ impl JsMessageCtx {
         ctx: SendSyncContext, 
         async_ctx: AsyncCtx,
 		sender: crate::runtime::WasmSender,
+		js_task_queue: JsTaskQueue,
         resolve: SendSyncJsValue,
         reject: SendSyncJsValue,
 		total: TotalRefCount
@@ -324,6 +326,7 @@ impl JsMessageCtx {
             ctx,
             async_ctx,
 			sender,
+			js_task_queue,
             resolve,
             reject,
 			total
@@ -368,11 +371,12 @@ impl JsMessageCtx {
         self.async_ctx.spawn_wasm_task(
             self.ctx, 
 			self.sender,
+			self.js_task_queue,
+			self.total,
             Some(Box::new(func)), 
             Box::new(promise_func),
             self.resolve, 
             self.reject, 
-            false
         );
     }
 }
@@ -381,7 +385,9 @@ impl JsMessageCtx {
 pub struct WasmMessageCtx {
     ctx: SendSyncContext,
     async_ctx: AsyncCtx,
+	js_task_queue: JsTaskQueue,
 	sender: crate::runtime::WasmSender,
+	total_count: TotalRefCount,
     resolve: SendSyncJsValue,
     reject: SendSyncJsValue,
 }
@@ -398,6 +404,8 @@ impl WasmMessageCtx {
         ctx: SendSyncContext,
         async_ctx: AsyncCtx,
 		sender: crate::runtime::WasmSender,
+		total_count: TotalRefCount,
+		js_task_queue: JsTaskQueue,
         resolve: SendSyncJsValue,
         reject: SendSyncJsValue,
     ) -> Self {
@@ -405,6 +413,8 @@ impl WasmMessageCtx {
             ctx,
             async_ctx,
 			sender,
+			total_count,
+			js_task_queue,
             resolve,
             reject,
         }
@@ -436,6 +446,8 @@ impl WasmMessageCtx {
         self.async_ctx.spawn_js_task(
             self.ctx, 
 			self.sender,
+			self.js_task_queue,
+			self.total_count,
             func, 
             Box::new(promise_func),
             self.resolve, 
