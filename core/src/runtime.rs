@@ -112,7 +112,7 @@ impl Opaque {
             })),
         };
         let opaque = Opaque::new(&runtime);
-		qjs::JS_IncMallocSize(rt, (size_of::<Runtime>() + opaque.deep_size_of()) as u64);
+		qjs::JS_IncMallocSize(rt, (size_of::<Runtime>() + opaque.deep_size_of()) as rquickjs_sys::size_t);
         let opaque = Box::leak(Box::new((opaque, runtime)));
         qjs::JS_SetRustRuntimeOpaque(rt, opaque as *mut (_, _) as *mut _);
         opaque.1.init_exec_in_thread(rt);
@@ -125,7 +125,7 @@ unsafe extern "C" fn JS_DropRustRuntime(rt: *mut qjs::JSRuntime) {
 	use deepsize::DeepSizeOf;
     let opaque: *mut (Opaque, Runtime) = qjs::JS_GetRustRuntimeOpaque(rt) as *mut _;
     let opaque: Box<(Opaque, Runtime)> = Box::from_raw(opaque);
-	qjs::JS_DecMallocSize(rt, (size_of::<Runtime>() + opaque.0.deep_size_of()) as u64);
+	qjs::JS_DecMallocSize(rt, (size_of::<Runtime>() + opaque.0.deep_size_of()) as rquickjs_sys::size_t);
 }
 
 #[cfg(feature = "quickjs-libc")]
