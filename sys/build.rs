@@ -99,12 +99,15 @@ fn main() {
         builder.file(out_dir.join(src));
     }
 
-	let target = std::env::var("TARGET").unwrap();
+	let target = env::var("TARGET").unwrap();
 	if target.contains("arm-unknown-linux-gnueabihf") {
 		println!("cargo:rustc-flags=-latomic");
 		builder.compiler("arm-linux-gnueabihf-gcc");
-	} else {
-		builder.compiler("clang-18");
+	} else if target.contains("armv7-unknown-linux-gnueabi") {
+        println!("cargo:rustc-flags=-latomic");
+		builder.compiler("arm-linux-gnueabi-gcc");
+    } else {
+		builder.compiler("clang-21");
 	}
 
     builder
